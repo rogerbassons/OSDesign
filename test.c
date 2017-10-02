@@ -6,7 +6,7 @@
 
 void *printTest(void *arg)
 {
-	for (int i = 1; i <= 10000; i++) {
+	for (int i = 1; i <= 100; i++) {
 		i++;
 		printf("TEST\n");
 	}

@@ -9,7 +9,7 @@ void my_scheduler (int signum)
 		printf("WHY\n"); //DEBUG
 		ucontext_t c = pop(&run);
 
-
+		push(&run, c);
 		setcontext(&c);
 	}
 
@@ -49,7 +49,7 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 		makecontext(&context, f, 0);
 
 		thread = (my_pthread_t*) nelements(&run);
-		push(&run, &context);
+		push(&run, context);
 		print(&run); //DEBUG
     
 		if (sa.sa_handler == NULL) {
