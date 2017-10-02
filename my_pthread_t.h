@@ -1,10 +1,19 @@
+#ifndef MY_PTHREAD_T_H
+#define MY_PTHREAD_T_H
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <ucontext.h>
-#include "DynamicContextArray.h"
+#include <sys/time.h>
+#include "LinkedList.h"
 
 typedef unsigned long my_pthread_t;
-DynamicContextArray run, wait;
+
+LinkedList run;
+
+struct sigaction sa;
+struct itimerval timer;
+
 
 /* Creates a pthread that executes function. Attributes are ignored, arg is not. */
 int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg);
@@ -53,3 +62,5 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex);
 //Destroys a given mutex. Mutex should be unlocked before doing so.
 
 */
+
+#endif
