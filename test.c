@@ -27,7 +27,7 @@ int main()
 	my_pthread_create(&t1, NULL, printTest, NULL);
 	my_pthread_create(&t2, NULL, printHello, NULL);
 
-	while(1);
+	while(1); // will be changed with my_pthread_join
 
        
 
