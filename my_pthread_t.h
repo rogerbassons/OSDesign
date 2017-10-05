@@ -9,6 +9,13 @@
 
 typedef unsigned long my_pthread_t;
 
+typedef struct {
+	ucontext_t context;
+	void *(*function)(void*);
+} my_pthread;
+
+my_pthread *running;
+
 LinkedList run;
 
 struct sigaction sa;

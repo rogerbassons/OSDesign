@@ -7,16 +7,31 @@ void my_scheduler (int signum)
 
 	if (!empty(&run)) {
 		printf("WHY\n"); //DEBUG
-		ucontext_t c = pop(&run);
+		my_thread *t = pop(&run);
+		if (getcontext(&context) != -1) {
+			t->context.uc_link = 0;
+			t->context.uc_stack.ss_sp = malloc(64000);
+			t->context.uc_stack.ss_size = 64000;
+			t->context.uc_stack.ss_flags = 0;
 
-		push(&run, c);
-		setcontext(&c);
+			void *f = t->function;
+			makecontext(&context, f, 0);
+
+			ucontext_t *old = &(running->context);
+			push(&run, running);
+			running = t;
+			
+			swapcontext(old,running);
+			print(&run); //DEBUG
+    
+		
+		}
 	}
 
 	sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
 }
 
-int myScheduler()
+int setMyScheduler()
 {
 	sa.sa_handler = &my_scheduler;
 	sigemptyset(&sa.sa_mask);
@@ -36,25 +51,17 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 
 
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
-	ucontext_t context;
-	ucontext_t old;
-    
-	if (getcontext(&context) != -1) {
-		context.uc_link = 0;
-		context.uc_stack.ss_sp = malloc(64000);
-		context.uc_stack.ss_size = 64000;
-		context.uc_stack.ss_flags = 0;
 
-		void *f = function;
-		makecontext(&context, f, 0);
+	my_pthread t;
+	t.function = function;
+	thread = &t;
 
-		thread = (my_pthread_t*) nelements(&run);
-		push(&run, context);
-		print(&run); //DEBUG
-    
-		if (sa.sa_handler == NULL) {
-			myScheduler();
-		}
+	push(&run, &thread);
+
+	if (sa.sa_handler == NULL) {
+		setMyScheduler();
 	}
+    
+	
 	sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
 }

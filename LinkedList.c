@@ -2,17 +2,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-Node *newNode(LinkedList *l, ucontext_t c) {
+Node *newNode(LinkedList *l, my_thread *t) {
 	Node *new = (Node*)malloc(sizeof(Node));
-	new->context = c;
+	new->thread = t;
 	new->next = NULL;
 	return new;
 }
 
 
-void push(LinkedList *l, ucontext_t c) {
-	Node* n = newNode(l,c);
-	printf("PUSH: %p\n", &(c.uc_stack));
+void push(LinkedList *l, my_thread *t) {
+	Node* n = newNode(l,t);
+	printf("PUSH: %p\n", &(t.uc_stack));
 	if (l->tail == NULL) {
 		l->nitems = 0;
 		l->head = l->tail = n;
@@ -23,7 +23,7 @@ void push(LinkedList *l, ucontext_t c) {
 	l->nitems++;
 }
 
-ucontext_t pop(LinkedList *l) {
+thread *pop(LinkedList *l) {
 	Node *n = l->head;
 	l->head = l->head->next;
 	
@@ -31,11 +31,11 @@ ucontext_t pop(LinkedList *l) {
 		l->tail = NULL;
 	}
 	
-	ucontext_t context = n->context;
+	my_thread *t = n->thread;
 	free(n);
-	printf("POP: %p\n", &(context.uc_stack));
+	printf("POP: %p\n", &(t->context.uc_stack));
 	l->nitems--;
-	return context;
+	return t;
 }
 
 
@@ -43,7 +43,7 @@ int empty(LinkedList *l) {
 	return l->head == NULL;
 }
 
-ucontext_t front(LinkedList *l) {
+my_thread *front(LinkedList *l) {
 	return l->head->context;
 }
 
@@ -54,7 +54,7 @@ unsigned int nelements(LinkedList *l) {
 void print(LinkedList *l) {
 	Node *n = l->head;
 	while (n != NULL) {
-		printf("ELEMENT: %p\n", &(n->context.uc_stack));
+		printf("ELEMENT: %p\n", &(n->thread->context.uc_stack));
 		n = n->next;
 	}
 }
