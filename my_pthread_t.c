@@ -16,7 +16,11 @@ void scheduler() {
 		ucontext_t *nextContext = &(nextThread->context);
 		
 		ucontext_t *oldContext = &(running->context);
-		push(&run, running);
+		if (getcontext(oldContext) != -1) {
+
+			push(&run, running);
+		}
+		
 		running = nextThread;
 
 		//UNBLOCK the signal before switching context

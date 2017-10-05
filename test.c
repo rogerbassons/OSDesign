@@ -6,7 +6,7 @@
 
 void *printTest(void *arg)
 {
-	for (int i = 1; i <= 100; i++) {
+	for (int i = 1; i <= 10000; i++) {
 		i++;
 		printf("TEST\n");
 	}
@@ -14,7 +14,7 @@ void *printTest(void *arg)
 
 void *printHello(void *arg)
 {
-	for (int i = 1; i <= 100; i++) {
+	while (1) {
 		printf("Hello\n");
 	}
 }
