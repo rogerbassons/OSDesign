@@ -5,34 +5,30 @@ void my_scheduler (int signum)
 {
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
 
+	printf("a\n");
 	if (!empty(&run)) {
-		printf("WHY\n"); //DEBUG
-		my_thread *t = pop(&run);
-		if (getcontext(&context) != -1) {
-			t->context.uc_link = 0;
-			t->context.uc_stack.ss_sp = malloc(64000);
-			t->context.uc_stack.ss_size = 64000;
-			t->context.uc_stack.ss_flags = 0;
-
-			void *f = t->function;
-			makecontext(&context, f, 0);
-
-			ucontext_t *old = &(running->context);
-			push(&run, running);
-			running = t;
-			
-			swapcontext(old,running);
-			print(&run); //DEBUG
-    
+		my_pthread_t *nextThread = pop(&run);
+		ucontext_t *nextContext = &(nextThread->context);
+		printf("RUN DEQUEUED: %p\n", nextThread); 
 		
-		}
-	}
+		
+		ucontext_t *oldContext = &(running->context);
+		push(&run, running);
+		running = nextThread;
 
+		swapcontext(oldContext,&(running->context));
+		
+	}
 	sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
+	
 }
 
 int setMyScheduler()
 {
+	my_pthread_t t;
+	running = &t;
+
+	
 	sa.sa_handler = &my_scheduler;
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_NODEFER;
@@ -50,18 +46,37 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 {
 
 
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
+	ucontext_t *c = &(thread->context);
+	if (getcontext(c) != -1) {
 
-	my_pthread t;
-	t.function = function;
-	thread = &t;
+		c->uc_link = &(running->context);
+		char stack[16384];
+		c->uc_stack.ss_sp = stack;
+		c->uc_stack.ss_size = sizeof(stack);
+		c->uc_stack.ss_flags = 0;
+		
+		void *f = function;
+		makecontext(c, f, 0);
 
-	push(&run, &thread);
+		sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
+		push(&run, thread);
+		if (running == NULL) {
+			my_pthread_t mainThread;
+			running = &mainThread;
+		}
+		sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
+		
+		
+	}
+
+
+	
+	printf("RUN QUEUED: %p\n", thread); 
 
 	if (sa.sa_handler == NULL) {
 		setMyScheduler();
 	}
+
     
 	
-	sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
 }

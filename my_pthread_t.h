@@ -7,14 +7,15 @@
 #include <sys/time.h>
 #include "LinkedList.h"
 
-typedef unsigned long my_pthread_t;
 
-typedef struct {
+typedef struct my_pthread_t my_pthread_t;
+struct my_pthread_t {
 	ucontext_t context;
 	void *(*function)(void*);
-} my_pthread;
+};
 
-my_pthread *running;
+my_pthread_t *running;
+ucontext_t mainContext;
 
 LinkedList run;
 

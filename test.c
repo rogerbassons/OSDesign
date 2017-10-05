@@ -14,20 +14,22 @@ void *printTest(void *arg)
 
 void *printHello(void *arg)
 {
-	while (1) {
+	for (int i = 1; i <= 100; i++) {
 		printf("Hello\n");
 	}
 }
 
 int main()
 {
-	my_pthread_t *t1;
-	my_pthread_t *t2;
+	my_pthread_t t1;
+	my_pthread_t t2;
 
-	my_pthread_create(t1, NULL, printTest, NULL);
-	my_pthread_create(t2, NULL, printHello, NULL);
+	my_pthread_create(&t1, NULL, printTest, NULL);
+	my_pthread_create(&t2, NULL, printHello, NULL);
 
 	while(1);
+
+       
 
 	return 0;
 }
