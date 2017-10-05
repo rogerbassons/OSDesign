@@ -31,7 +31,7 @@ my_pthread_t *pop(LinkedList *l) {
 	}
 	
 	my_pthread_t *t = n->thread;
-	free(n);
+	//free(n);
 	l->nitems--;
 	return t;
 }
@@ -47,4 +47,12 @@ my_pthread_t *front(LinkedList *l) {
 
 unsigned int nelements(LinkedList *l) {
 	return l->nitems;
+}
+
+void print(LinkedList *l) {
+	Node *n = l->head;
+	while (n != NULL) {
+		printf("%p\n", n->thread);
+		n = n->next;
+	}
 }

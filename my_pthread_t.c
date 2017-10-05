@@ -1,26 +1,25 @@
 #include "my_pthread_t.h"
 #include <signal.h>
-
-void my_scheduler (int signum)
-{
+void scheduler() {
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
-
-	printf("a\n");
+	while (empty(&run));
 	if (!empty(&run)) {
 		my_pthread_t *nextThread = pop(&run);
 		ucontext_t *nextContext = &(nextThread->context);
 		printf("RUN DEQUEUED: %p\n", nextThread); 
 		
-		
 		ucontext_t *oldContext = &(running->context);
 		push(&run, running);
 		running = nextThread;
+		print(&run);
 
-		swapcontext(oldContext,&(running->context));
+	      
+
+		sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
+
+		setcontext(&(running->context));
 		
 	}
-	sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
-	
 }
 
 int setMyScheduler()
@@ -29,7 +28,7 @@ int setMyScheduler()
 	running = &t;
 
 	
-	sa.sa_handler = &my_scheduler;
+	sa.sa_handler = scheduler;
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_NODEFER;
 	sigaction(SIGPROF, &sa, NULL);
@@ -45,11 +44,30 @@ int setMyScheduler()
 int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg)
 {
 
+	
+	if (running == NULL) {
+		
+		if (getcontext(&schedulerContext) != -1) {
+
+				schedulerContext.uc_link = 0;
+				char stack[16384];
+				schedulerContext.uc_stack.ss_sp = stack;
+				schedulerContext.uc_stack.ss_size = sizeof(stack);
+				schedulerContext.uc_stack.ss_flags = 0;
+		
+				makecontext(&schedulerContext, scheduler, 0);
+		
+		}
+	}
+
+	
 
 	ucontext_t *c = &(thread->context);
 	if (getcontext(c) != -1) {
 
-		c->uc_link = &(running->context);
+		
+
+		c->uc_link = &schedulerContext;
 		char stack[16384];
 		c->uc_stack.ss_sp = stack;
 		c->uc_stack.ss_size = sizeof(stack);
@@ -58,13 +76,8 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 		void *f = function;
 		makecontext(c, f, 0);
 
-		sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
 		push(&run, thread);
-		if (running == NULL) {
-			my_pthread_t mainThread;
-			running = &mainThread;
-		}
-		sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
+		
 		
 		
 	}
@@ -80,3 +93,5 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
     
 	
 }
+
+
