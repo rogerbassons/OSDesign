@@ -7,6 +7,8 @@
 #include <sys/time.h>
 #include "LinkedList.h"
 
+#define STACK_SIZE 4096
+#define QUANTUM 10
 
 typedef struct my_pthread_t my_pthread_t;
 struct my_pthread_t {
@@ -16,7 +18,8 @@ struct my_pthread_t {
 
 my_pthread_t *running;
 my_pthread_t mainThread;
-ucontext_t schedulerContext;
+ucontext_t signalContext;
+char signalStack[STACK_SIZE];
 
 LinkedList run;
 

@@ -26,7 +26,7 @@ void *printError(void *arg)
 	
 	for (int i = 1; i <= 100; i++) {
 		i++;
-		printf("ERROR\n");
+		printf("ERROR %i\n", i);
 	}
 }
 
@@ -41,9 +41,11 @@ int main()
 	my_pthread_create(&t2, NULL, printHello, NULL);
 	my_pthread_create(&t3, NULL, printError, NULL);
 
-
-	while(1)
-		printf("MAIN\n"); // will be changed with my_pthread_join
+	int i = 0;
+	while(1) {
+		printf("MAIN %i\n", i); // will be changed with my_pthread_join
+		i++;
+	}
 
        
 
