@@ -8,7 +8,7 @@
 #include "LinkedList.h"
 
 #define STACK_SIZE 4096
-#define QUANTUM 10
+#define QUANTUM 25
 
 typedef struct my_pthread_t my_pthread_t;
 struct my_pthread_t {

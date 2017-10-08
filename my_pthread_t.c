@@ -6,6 +6,7 @@
 // the scheduler
 void scheduler() {
 	//check for threads at run queue
+	
 	if (!empty(&run)) {
 		
 		my_pthread_t *nextThread = pop(&run);
@@ -20,7 +21,8 @@ void scheduler() {
 	}
 }
 
-void interrupt(int signum) {
+void interrupt(int signum) 
+{
 	getcontext(&signalContext);
 	signalContext.uc_stack.ss_sp = signalStack;
 	signalContext.uc_stack.ss_size = STACK_SIZE;
@@ -84,15 +86,13 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*))
 
 int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg)
 {
-
-	createNewThread(thread, function);
-
+	
 	sigset_t oldmask;
 	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
 		perror ("sigprocmask");
 		return 1;
 	}
-
+	createNewThread(thread, function);
 	push(&run, thread);
  
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
