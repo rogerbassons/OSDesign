@@ -2,63 +2,84 @@
 #include <signal.h>
 
 // the scheduler
-void scheduler() {
-
-	// BLOCK the signal to avoid being interrupted and start another scheduler
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
+void scheduler(int signum) {
 	
-	while (empty(&run)); // maybe it's not required
-
 	//check for threads at run queue
 	if (!empty(&run)) {
 		
 		my_pthread_t *nextThread = pop(&run);
 		ucontext_t *nextContext = &(nextThread->context);
 		
-		ucontext_t *oldContext = &(running->context);
-		if (getcontext(oldContext) != -1) {
-
-			push(&run, running);
+		ucontext_t *oldContext = NULL;
+		if (running != NULL)
+			oldContext = &(running->context);
+                else {
+			// only runs once at the beginning
+			oldContext = &(mainThread.context);
+			running = &mainThread;
 		}
+
+
+		push(&run, running);
 		
 		running = nextThread;
-
-		//UNBLOCK the signal before switching context
-		// is there any danger to be interrupted before setcontext?
-		sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
-
-		setcontext(&(running->context));
+		
+		
+		if (oldContext != NULL)
+			swapcontext(oldContext, &(running->context));
+		
 	}
 }
 
 // sets the periodic signal to run scheduler
 int setMyScheduler()
 {
-	my_pthread_t t;
-	running = &t;
-
 	
 	sa.sa_handler = scheduler;
 	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_NODEFER;
-	sigaction(SIGPROF, &sa, NULL);
+	sigaddset (&sa.sa_mask, SIGALRM);
+	sa.sa_flags = 0;//SA_RESTART | SA_SIGINFO;
+	sigaction(SIGALRM, &sa, NULL);
  
 	timer.it_value.tv_sec = 0;
-	timer.it_value.tv_usec = 25000;
+	timer.it_value.tv_usec = 250;
 	timer.it_interval.tv_sec = 0;
-	timer.it_interval.tv_usec = 25000;
+	timer.it_interval.tv_usec = 250;
   
-	setitimer(ITIMER_PROF, &timer, NULL);
+	setitimer(ITIMER_REAL, &timer, NULL);
 }
 
-int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg)
-{
+void createNewSchedulerContext() {
 
-	// new thread construction
+
+	if (getcontext(&schedulerContext) != -1) {
+
+		schedulerContext.uc_link = 0;
+		
+		sigemptyset(&(schedulerContext.uc_sigmask));
+		sigaddset(&(schedulerContext.uc_sigmask), SIGALRM);
+
+		char stack[16384];
+		schedulerContext.uc_stack.ss_sp = stack;
+		schedulerContext.uc_stack.ss_size = sizeof(stack);
+		schedulerContext.uc_stack.ss_flags = 0;
+
+		makecontext(&schedulerContext, scheduler, 0);
+
+	}
+
+}
+
+int createNewThread(my_pthread_t *thread, void *(*function)(void*))
+{
+// new thread construction
 	ucontext_t *c = &(thread->context);
 	if (getcontext(c) != -1) {
 
-		c->uc_link = &schedulerContext;
+		c->uc_link = &schedulerContext; // if thread finishes running call the scheduler
+		
+		sigemptyset(&c->uc_sigmask);
+		
 		char stack[16384];
 		c->uc_stack.ss_sp = stack;
 		c->uc_stack.ss_size = sizeof(stack);
@@ -66,9 +87,27 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 		
 		void *f = function;
 		makecontext(c, f, 0);
-
-		push(&run, thread);
+		return 0;
 		
+	}
+}
+
+int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg)
+{
+
+	createNewThread(thread, function);
+
+	sigset_t oldmask;
+	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
+		perror ("sigprocmask");
+		return 1;
+	}
+
+	push(&run, thread);
+ 
+	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
+		perror ("sigprocmask");
+		return 1;
 	}
 
 
@@ -76,24 +115,12 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 	// only executed once (at the beginning)
 	// constructs the scheduler context and starts the periodic signal
 	if (running == NULL) {
-		
-		if (getcontext(&schedulerContext) != -1) {
-
-			schedulerContext.uc_link = 0;
-			char stack[16384];
-			schedulerContext.uc_stack.ss_sp = stack;
-			schedulerContext.uc_stack.ss_size = sizeof(stack);
-			schedulerContext.uc_stack.ss_flags = 0;
-		
-			makecontext(&schedulerContext, scheduler, 0);
-		
-		}
+		createNewSchedulerContext();	
 
 		setMyScheduler();
 	}
 
-    
-	
+	return 0;
 }
 
 

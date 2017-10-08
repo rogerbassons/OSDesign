@@ -6,28 +6,44 @@
 
 void *printTest(void *arg)
 {
-	for (int i = 1; i <= 10000; i++) {
+	
+	for (int i = 1; i <= 100; i++) {
 		i++;
-		printf("TEST\n");
+		printf("TEST %i\n", i);
 	}
 }
 
 void *printHello(void *arg)
 {
-	while (1) {
-		printf("Hello\n");
+	for (int i = 1; i <= 100; i++) {
+		i++;
+		printf("Hello %i\n", i);
 	}
 }
+
+void *printError(void *arg)
+{
+	
+	for (int i = 1; i <= 100; i++) {
+		i++;
+		printf("ERROR\n");
+	}
+}
+
 
 int main()
 {
 	my_pthread_t t1;
 	my_pthread_t t2;
+	my_pthread_t t3;
 
 	my_pthread_create(&t1, NULL, printTest, NULL);
 	my_pthread_create(&t2, NULL, printHello, NULL);
+	my_pthread_create(&t3, NULL, printError, NULL);
 
-	while(1); // will be changed with my_pthread_join
+
+	while(1)
+		printf("MAIN\n"); // will be changed with my_pthread_join
 
        
 

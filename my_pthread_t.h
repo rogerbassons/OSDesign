@@ -15,6 +15,7 @@ struct my_pthread_t {
 };
 
 my_pthread_t *running;
+my_pthread_t mainThread;
 ucontext_t schedulerContext;
 
 LinkedList run;

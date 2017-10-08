@@ -18,8 +18,9 @@ void push(LinkedList *l, my_pthread_t *t) {
 	} else {
 		l->tail->next = n;
 		l->tail = n;
+		l->nitems++;
 	}
-	l->nitems++;
+	
 }
 
 my_pthread_t *pop(LinkedList *l) {
@@ -31,7 +32,7 @@ my_pthread_t *pop(LinkedList *l) {
 	}
 	
 	my_pthread_t *t = n->thread;
-	//free(n);
+	free(n);
 	l->nitems--;
 	return t;
 }
