@@ -1,23 +1,58 @@
 #include "my_pthread_t.h"
 #include <signal.h>
 
+void threadExit(void *res)
+{
+	sigset_t oldmask;
+	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
+		perror ("sigprocmask");
+	}
+
+	running->finished = 1;
+	if (res != NULL)
+		running->value_ptr = res;
+	
+	if (!empty(&run)) {
+		
+		running = pop(&run);
+		
+		//printf("exit to: %p\n---------------\n", running);
+		setcontext(&(running->context));	
+	}
+	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
+		perror ("sigprocmask");
+	}
+
+
+}
+
+void *threadRun(my_pthread_t t)
+{
+	void **res = t->function(t->arg);
+	//printf("DONE!\n");
+	if(res != NULL){
+		threadExit(*res);
+	} else {
+		threadExit(NULL);
+	}
+}
+
 
 
 // the scheduler
 void scheduler() {
 	//check for threads at run queue
 	
-	if (nelements(&run) > 1) {
+	//printf("scheduling...\n");
+	if (!empty(&run)) {
 		
 		my_pthread_t nextThread = pop(&run);
 		
 		push(&run, running);
-		
 		running = nextThread;
 		
-		my_pthread_t t = running;
-		setcontext(&(t->context));
-		
+		//printf("new: %p\n---------------\n", running);
+		setcontext(&(running->context));	
 	}
 }
 
@@ -29,7 +64,7 @@ void interrupt(int signum)
 	signalContext.uc_stack.ss_flags = 0;
 	sigemptyset(&signalContext.uc_sigmask);
 	sigaddset(&signalContext.uc_sigmask, SIGALRM);
-	makecontext(&signalContext, scheduler, 1);
+	makecontext(&signalContext, scheduler, 0, NULL);
 	
         ucontext_t *oldContext = NULL;
 	if (running != NULL)
@@ -39,6 +74,8 @@ void interrupt(int signum)
 		oldContext = &(mainThread.context);
 		running = &mainThread;
 	}
+
+	//printf("old: %p\n", oldContext);
 
 	swapcontext(oldContext,&signalContext);
 }
@@ -67,10 +104,13 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 	// new thread construction
 	sthread *t = (sthread *) malloc(sizeof(sthread));
 	*thread = t;
+	t->function = function;
+	t->arg = arg;
+	t->finished = 0;
 	ucontext_t *c = &(t->context);
 	if (getcontext(c) != -1) {
 
-		c->uc_link = 0; // if thread finishes running call the scheduler
+		c->uc_link = 0; 
 		
 		sigemptyset(&c->uc_sigmask);
 		
@@ -79,8 +119,7 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 		c->uc_stack.ss_size = sizeof(stack);
 		c->uc_stack.ss_flags = 0;
 		
-		void *f = function;
-		makecontext(c, f, 1, arg);
+		makecontext(c, (void *)threadRun, 1, t, NULL);
 		return 0;
 		
 	}
@@ -94,7 +133,10 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 		perror ("sigprocmask");
 		return 1;
 	}
-	mainThreadId = &mainThread;
+
+	// only executed once (at the beginning)
+	// constructs the scheduler context and starts the periodic signal
+	
 	createNewThread(thread, function, arg);
 	push(&run, *thread);
  
@@ -104,9 +146,6 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 	}
 
 
-
-	// only executed once (at the beginning)
-	// constructs the scheduler context and starts the periodic signal
 	if (running == NULL) {
 		setMyScheduler();
 	}
@@ -156,25 +195,22 @@ void pthread_exit(void *value_ptr)
 //Call to the my_pthread_t library ensuring that the calling thread will not continue execution until the one it references exits. If value_ptr is not null, the return value of the exiting thread will be passed back.
 int my_pthread_join(my_pthread_t thread, void **value_ptr)
 {
-
 	
-
 	sigset_t oldmask;
 
 	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
 		perror ("sigprocmask");
 		return 1;
 	}
-	
-	value_ptr = &(thread->value_ptr);
-	my_pthread_t old = running;
-	push(&(thread->wait), running);
-	
-	my_pthread_t nextThread = pop(&run);
-	running = nextThread;
-	
-	swapcontext(&old->context, &nextThread->context);
+		
 
+	if (value_ptr != NULL)
+		value_ptr = &(thread->value_ptr);
+
+	push(&(thread->wait), running);
+
+	while(!thread->finished)
+		interrupt(0);
  
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
 		perror ("sigprocmask");

@@ -1,48 +1,55 @@
 #include "my_pthread_t.h"
 #include <stdio.h>
-#include <signal.h>
-#include <string.h>
-#include <sys/time.h>
 
-void *printTest(void *arg)
+/* this function is run by the second thread */
+void *inc_x(void *x_void_ptr)
 {
-	
-	for (int i = 1; i <= 100; i++) {
-		i++;
-		printf("TEST %i\n", i);
-	}
-}
 
-void *printHello(void *arg)
-{
-	for (int i = 1; i <= 100; i++) {
-		i++;
-		printf("Hello %i\n", i);
-	}
-}
+	/* increment x to 100 */
+	int *x_ptr = (int *)x_void_ptr;
+	while(++(*x_ptr) < 100);	
 
-void *printError(void *arg)
-{
-	
-	for (int i = 1; i <= 100; i++) {
-		i++;
-		printf("ERROR %i\n", i);
-	}
-}
+	printf("x increment finished\n");
 
+	/* the function must return something - NULL will do */
+	return NULL;
+
+}
 
 int main()
 {
-	my_pthread_t t1;
-	my_pthread_t t2;
-	my_pthread_t t3;
 
-	my_pthread_create(&t1, NULL, printTest, NULL);
-	my_pthread_create(&t2, NULL, printHello, NULL);
-	my_pthread_create(&t3, NULL, printError, NULL);
-	
-        my_pthread_join(t1, NULL);
-       
+	int x = 0, y = 0;
+
+	/* show the initial values of x and y */
+	printf("x: %d, y: %d\n", x, y);
+
+	/* this variable is our reference to the second thread */
+	my_pthread_t inc_x_thread;
+
+	/* create a second thread which executes inc_x(&x) */
+	if(my_pthread_create(&inc_x_thread, NULL, inc_x, &x)) {
+
+		fprintf(stderr, "Error creating thread\n");
+		return 1;
+
+	}
+	/* increment y to 100 in the first thread */
+	while(++y < 100);
+
+	printf("y increment finished\n");
+
+	// wait for the second thread to finish 
+	if(my_pthread_join(inc_x_thread, NULL)) {
+
+		fprintf(stderr, "Error joining thread\n");
+		return 2;
+
+	}
+
+	/* show the results - x is now 100 thanks to the second thread */
+	printf("x: %d, y: %d\n", x, y);
 
 	return 0;
+
 }
