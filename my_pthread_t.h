@@ -16,9 +16,8 @@ struct sthread {
 	ucontext_t context;
 	void *(*function)(void*);
 	void *arg;
-	void *value_ptr;
+	void **res;
 	int finished;
-	LinkedList wait;
 };
 typedef sthread* my_pthread_t;
 

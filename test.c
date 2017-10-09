@@ -11,6 +11,9 @@ void *inc_x(void *x_void_ptr)
 
 	printf("x increment finished\n");
 
+	int x = 500;
+	pthread_exit(&x);
+
 	/* the function must return something - NULL will do */
 	return NULL;
 
@@ -39,8 +42,10 @@ int main()
 
 	printf("y increment finished\n");
 
+	int *p;
+
 	// wait for the second thread to finish 
-	if(my_pthread_join(inc_x_thread, NULL)) {
+	if(my_pthread_join(inc_x_thread, (void **)p)) {
 
 		fprintf(stderr, "Error joining thread\n");
 		return 2;
@@ -49,6 +54,7 @@ int main()
 
 	/* show the results - x is now 100 thanks to the second thread */
 	printf("x: %d, y: %d\n", x, y);
+	printf("%i\n", *p);
 
 	return 0;
 

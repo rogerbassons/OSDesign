@@ -10,7 +10,7 @@ void threadExit(void *res)
 
 	running->finished = 1;
 	if (res != NULL)
-		running->value_ptr = res;
+		running->res = res;
 	
 	if (!empty(&run)) {
 		
@@ -168,28 +168,7 @@ void my_pthread_yield()
 // Explicit call to the my_pthread_t library to end the pthread that called it. If the value_ptr isn't NULL, any return value from the thread will be saved. 
 void pthread_exit(void *value_ptr) 
 {
-	sigset_t oldmask;
-	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
-		perror ("sigprocmask");
-	}
-	
-	running->value_ptr = value_ptr;
-
-        while (!empty(&running->wait)) {
-		my_pthread_t t = pop(&running->wait);
-		push(&run, t);
-	}
-	
-	my_pthread_t nextThread = pop(&run);
-	running = nextThread;
-	
-	setcontext(&nextThread->context);	
-
- 
-	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
-		perror ("sigprocmask");
-	}
-
+	threadExit(value_ptr);
 }
 
 //Call to the my_pthread_t library ensuring that the calling thread will not continue execution until the one it references exits. If value_ptr is not null, the return value of the exiting thread will be passed back.
@@ -204,10 +183,7 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 	}
 		
 
-	if (value_ptr != NULL)
-		value_ptr = &(thread->value_ptr);
-
-	push(&(thread->wait), running);
+	value_ptr = thread->res;
 
 	while(!thread->finished)
 		interrupt(0);
