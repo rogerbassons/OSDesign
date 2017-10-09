@@ -8,20 +8,26 @@
 #include "LinkedList.h"
 
 #define STACK_SIZE 4096
-#define QUANTUM 25
+#define QUANTUM 25000
 
-typedef struct my_pthread_t my_pthread_t;
-struct my_pthread_t {
+
+typedef struct sthread sthread;
+struct sthread {
 	ucontext_t context;
 	void *(*function)(void*);
+	void *value_ptr;
+	LinkedList wait;
 };
+typedef sthread* my_pthread_t;
 
-my_pthread_t *running;
-my_pthread_t mainThread;
+my_pthread_t running;
+sthread mainThread;
+my_pthread_t mainThreadId;
 ucontext_t signalContext;
 char signalStack[STACK_SIZE];
 
 LinkedList run;
+LinkedList wait;
 
 struct sigaction sa;
 struct itimerval timer;
@@ -33,7 +39,7 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
  
 
 
-/*
+
 void my_pthread_yield();
 // Explicit call to the my_pthread_t scheduler requesting that the current context can be swapped out and another can be scheduled if one is waiting. 
 
@@ -42,14 +48,13 @@ void my_pthread_yield();
 void pthread_exit(void *value_ptr);
 // Explicit call to the my_pthread_t library to end the pthread that called it. If the value_ptr isn't NULL, any return value from the thread will be saved. 
 
- 
+
 
 int my_pthread_join(my_pthread_t thread, void **value_ptr);
-
 //Call to the my_pthread_t library ensuring that the calling thread will not continue execution until the one it references exits. If value_ptr is not null, the return value of the exiting thread will be passed back.
 
  
-
+/*
 //Mutex note: Both the unlock and lock functions should be very fast. If there are any threads that are meant to compete for these functions, my_pthread_yield should be called immediately after running the function in question. Relying on the internal timing will make the function run slower than using yield.
 
  

@@ -40,13 +40,8 @@ int main()
 	my_pthread_create(&t1, NULL, printTest, NULL);
 	my_pthread_create(&t2, NULL, printHello, NULL);
 	my_pthread_create(&t3, NULL, printError, NULL);
-
-	int i = 0;
-	while(1) {
-		printf("MAIN %i\n", i); // will be changed with my_pthread_join
-		i++;
-	}
-
+	
+        my_pthread_join(t1, NULL);
        
 
 	return 0;
