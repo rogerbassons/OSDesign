@@ -186,8 +186,8 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 	while(!thread->finished)
 		interrupt(0);
 
-
-	*value_ptr = *thread->res;
+	if (value_ptr != NULL) 
+		*value_ptr = *thread->res;
 
  
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
