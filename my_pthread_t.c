@@ -10,7 +10,7 @@ void threadExit(void *res)
 
 	running->finished = 1;
 	if (res != NULL)
-		running->res = res;
+		running->res = &res;
 	
 	if (!empty(&run)) {
 		
@@ -182,11 +182,13 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 		return 1;
 	}
 		
-
-	value_ptr = thread->res;
-
+	
 	while(!thread->finished)
 		interrupt(0);
+
+
+	*value_ptr = *thread->res;
+
  
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
 		perror ("sigprocmask");

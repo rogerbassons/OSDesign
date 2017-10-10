@@ -42,19 +42,20 @@ int main()
 
 	printf("y increment finished\n");
 
-	int *p;
+	void *p;
 
 	// wait for the second thread to finish 
-	if(my_pthread_join(inc_x_thread, (void **)p)) {
+	if(my_pthread_join(inc_x_thread, &p)) {
 
 		fprintf(stderr, "Error joining thread\n");
 		return 2;
 
 	}
 
+	int z = *(int *)p;
+
 	/* show the results - x is now 100 thanks to the second thread */
-	printf("x: %d, y: %d\n", x, y);
-	printf("%i\n", *p);
+	printf("x: %d, y: %d, z: %d\n", x, y, z);
 
 	return 0;
 
