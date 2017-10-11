@@ -115,10 +115,6 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 	*thread = t;
 	t->waitJoin = (LinkedList *) malloc(sizeof(LinkedList));
 
-	(threads[*nThreads]) =  *thread;
-	t->id = *nThreads;
-	*nThreads += 1;
-
 	t->function = function;
 	t->arg = arg;
 	t->finished = 0;
@@ -143,15 +139,12 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 {
 
 	if (run == NULL) {
-		threads = (my_pthread_t *)malloc(sizeof(my_pthread_t)*50);
-		nThreads = (int *)malloc(sizeof(int)); 
 		run = (LinkedList *) malloc(sizeof(LinkedList));
 		wait = (LinkedList *) malloc(sizeof(LinkedList));
 		mainThread = (sthread *) malloc(sizeof(sthread));
 		running = (my_pthread_t *) malloc(sizeof(my_pthread_t));
 
 		*running = mainThread;
-		*nThreads = 0;
 		setMyScheduler();
 	}
 	sigset_t oldmask;
@@ -229,7 +222,7 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 			//printf("%p\n", run);
 
 			//printf("new: %p\n---------------\n", *running);
-	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+			sigprocmask(SIG_SETMASK, &oldmask, NULL); 
 			swapcontext(old, &((*running)->context));	
 		}
 	}
@@ -249,4 +242,77 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 	return 0;
 }
 
+
+//Initializes a my_pthread_mutex_t created by the calling thread. Attributes are ignored.
+int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr)
+{
+	(*mutex)->state = 0;
+	(*mutex)->wait = (LinkedList *) malloc(sizeof(LinkedList));
+}
+
+int testAndSet(my_pthread_mutex_t *m) {
+	int s = (*m)->state;
+	(*m)->state = 1;
+	return s;
+}
+
+//Locks a given mutex, other threads attempting to access this mutex will not run until it is unlocked.
+int my_pthread_mutex_lock(my_pthread_mutex_t *mutex)
+{
+	my_pthread_mutex_t m = *mutex;
+	while(testAndSet(mutex) == 1) {
+		sigset_t oldmask;
+		sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+		if (m->state == 1) {
+			push(m->wait, running);
+			timer.it_value.tv_usec = QUANTUM;
+
+			ucontext_t *old = &((*running)->context);
+		
+			*running = *pop(run);
+
+			sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+			swapcontext(old, &((*running)->context));	
+		} else {
+			sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+		}
+	}
+}
+
+
+ 
+
+// Unlocks a given mutex. 
+int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex)
+{
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	my_pthread_mutex_t m = *mutex;
+
+	if (!empty(m->wait)) {
+		push(run, pop(m->wait));
+	}
+
+	m->state = 0;
+
+
+	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+
+}
+
+ 
+
+//Destroys a given mutex. Mutex should be unlocked before doing so.
+int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
+{
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	my_pthread_mutex_t m = *mutex;
+	while (!empty(m->wait)) {
+		push(run, pop(m->wait));
+	}
+	m->state = 0;
+	free(m->wait);
+	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+}
 

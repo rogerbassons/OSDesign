@@ -23,13 +23,18 @@ struct sthread {
 };
 typedef sthread* my_pthread_t;
 
+typedef struct lock lock;
+struct lock {
+	int state;
+	LinkedList * wait;
+};
+typedef lock* my_pthread_mutex_t;
+
 my_pthread_t *running;
 sthread *mainThread;
 ucontext_t signalContext;
 char signalStack[STACK_SIZE];
 
-my_pthread_t *threads;
-int *nThreads;
 LinkedList *run;
 LinkedList *wait;
 
@@ -58,13 +63,12 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr);
 //Call to the my_pthread_t library ensuring that the calling thread will not continue execution until the one it references exits. If value_ptr is not null, the return value of the exiting thread will be passed back.
 
  
-/*
+
 //Mutex note: Both the unlock and lock functions should be very fast. If there are any threads that are meant to compete for these functions, my_pthread_yield should be called immediately after running the function in question. Relying on the internal timing will make the function run slower than using yield.
 
  
 
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr);
-
 //Initializes a my_pthread_mutex_t created by the calling thread. Attributes are ignored.
 
  
@@ -82,6 +86,6 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex);
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex);
 //Destroys a given mutex. Mutex should be unlocked before doing so.
 
-*/
+
 
 #endif
