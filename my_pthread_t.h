@@ -7,25 +7,29 @@
 #include <sys/time.h>
 #include "LinkedList.h"
 
-#define STACK_SIZE 65536
+#define STACK_SIZE 4096
 #define QUANTUM 25000
 
 
 typedef struct sthread sthread;
 struct sthread {
+	unsigned int id;
 	ucontext_t context;
 	void *(*function)(void*);
 	void *arg;
 	void **res;
 	int finished;
+        LinkedList *waitJoin;
 };
 typedef sthread* my_pthread_t;
 
-my_pthread_t running;
+my_pthread_t *running;
 sthread *mainThread;
 ucontext_t signalContext;
 char signalStack[STACK_SIZE];
 
+my_pthread_t *threads;
+int *nThreads;
 LinkedList *run;
 LinkedList *wait;
 

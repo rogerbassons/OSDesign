@@ -7,17 +7,28 @@ void threadExit(void *res)
 	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
 		perror ("sigprocmask");
 	}
+	//printf("exit from : %p\n", (*running));
+	//printf("%p\n", run);
+	print(run);
 
-	running->finished = 1;
+	(*running)->finished = 1;
 	if (res != NULL)
-		running->res = &res;
+		(*running)->res = &res;
+
+	while (!empty((*running)->waitJoin)) {
+		//printf("wake up: ");
+		push(run, pop((*running)->waitJoin));
+		print(run);
+	}
 	
 	if (!empty(run)) {
+		print(run);
+		//printf("exit thread, wake up next: ");
+		*running = *pop(run);
 		
-		running = pop(run);
-		
-		//printf("exit to: %p\n---------------\n", running);
-		setcontext(&(running->context));	
+		//printf("exit to: %p\n---------------\n", *running);
+		sigprocmask(SIG_SETMASK, &oldmask, NULL);
+		setcontext(&((*running)->context));	
 	}
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
 		perror ("sigprocmask");
@@ -29,12 +40,16 @@ void threadExit(void *res)
 void *threadRun(my_pthread_t t)
 {
 	void **res = t->function(t->arg);
-	//printf("DONE!\n");
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask); 
 	if(res != NULL){
 		threadExit(*res);
 	} else {
 		threadExit(NULL);
 	}
+
+	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+	//printf("Exit Exit, have a nice jump...");
 }
 
 
@@ -46,13 +61,17 @@ void scheduler() {
 	//printf("scheduling...\n");
 	if (!empty(run)) {
 		
-		my_pthread_t nextThread = pop(run);
-		
+		my_pthread_t *nextThread = pop(run);
+		//printf("saving thread: %p   -> ", *running);
 		push(run, running);
-		running = nextThread;
+		print(run);
+		*running = *nextThread;
 		
-		//printf("new: %p\n---------------\n", running);
-		setcontext(&(running->context));	
+		//printf("setcontext scheduler: %p\n---------------\n", *running);
+		setcontext(&((*running)->context));	
+	} else {
+		//printf("resuming scheduler: %p\n---------------\n", *running);
+		setcontext(&((*running)->context));
 	}
 }
 
@@ -66,18 +85,10 @@ void interrupt(int signum)
 	sigaddset(&signalContext.uc_sigmask, SIGALRM);
 	makecontext(&signalContext, scheduler, 0, NULL);
 	
-        ucontext_t *oldContext = NULL;
-	if (running != NULL)
-		oldContext = &(running->context);
-	else {
-		// only runs once at the beginning
-		oldContext = &(mainThread->context);
-		running = mainThread;
-	}
 
-	//printf("old: %p\n", oldContext);
+	//printf("interrupt old: %p\n", *running);
 
-	swapcontext(oldContext,&signalContext);
+	swapcontext(&(*running)->context,&signalContext);
 }
 
 // sets the periodic signal to run scheduler
@@ -104,22 +115,27 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 	// new thread construction
 	sthread *t = (sthread *) malloc(sizeof(sthread));
 	*thread = t;
+	t->waitJoin = (LinkedList *) malloc(sizeof(LinkedList));
+
+	(threads[*nThreads]) =  *thread;
+	t->id = *nThreads;
+	*nThreads += 1;
+
 	t->function = function;
 	t->arg = arg;
 	t->finished = 0;
-	ucontext_t *c = &(t->context);
-	if (getcontext(c) != -1) {
+	if (getcontext(&(t->context)) != -1) {
 
-		c->uc_link = 0; 
+		t->context.uc_link = 0; 
 		
-		sigemptyset(&c->uc_sigmask);
+		sigemptyset(&(t->context.uc_sigmask));
 		
-		char stack[STACK_SIZE];
-		c->uc_stack.ss_sp = stack;
-		c->uc_stack.ss_size = sizeof(stack);
-		c->uc_stack.ss_flags = 0;
+		char *stack = (char*) malloc(sizeof(STACK_SIZE));
+		t->context.uc_stack.ss_sp = stack;
+		t->context.uc_stack.ss_size = STACK_SIZE;
+		t->context.uc_stack.ss_flags = 0;
 		
-		makecontext(c, (void *)threadRun, 1, t, NULL);
+		makecontext(&(t->context), (void *)threadRun, 1, t, NULL);
 		return 0;
 		
 	}
@@ -127,30 +143,36 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 
 int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg)
 {
-	
+
+	if (run == NULL) {
+		threads = (my_pthread_t *)malloc(sizeof(my_pthread_t)*50);
+		nThreads = (int *)malloc(sizeof(int)); 
+		run = (LinkedList *) malloc(sizeof(LinkedList));
+		wait = (LinkedList *) malloc(sizeof(LinkedList));
+		mainThread = (sthread *) malloc(sizeof(sthread));
+		running = (my_pthread_t *) malloc(sizeof(my_pthread_t));
+
+		*running = mainThread;
+		*nThreads = 0;
+		setMyScheduler();
+	}
 	sigset_t oldmask;
 	if (sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask) < 0) {
 		perror ("sigprocmask");
 		return 1;
 	}
 
-	if (run == NULL) {
-		run = (LinkedList *) malloc(sizeof(LinkedList));
-		wait = (LinkedList *) malloc(sizeof(LinkedList));
-		mainThread = (sthread *) malloc(sizeof(sthread));
-	}	
+		
 	createNewThread(thread, function, arg);
-	push(run, *thread);
+	//printf("Create: ->");
+	push(run, thread);
+	print(run);
+
+
  
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
 		perror ("sigprocmask");
 		return 1;
-	}
-
-	// only executed once (at the beginning)
-	// constructs the scheduler context and starts the periodic signal
-	if (running == NULL) {
-		setMyScheduler();
 	}
 
 	return 0;
@@ -184,10 +206,40 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 		perror ("sigprocmask");
 		return 1;
 	}
-		
 	
-	while(!thread->finished)
-		interrupt(0);
+	/*while(1) {
+		sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask); 
+		printf("%i\n", thread->finished);
+		printf("thread: %p\n", thread);
+		printf("main: %p\n", (*running));
+		sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+		int i = 0;
+	}*/
+	
+	if (!thread->finished) {
+		//printf("wait: ");
+		push(thread->waitJoin, running);
+		print(run);
+		
+		if (!empty(run)) {
+		
+			ucontext_t *old = &((*running)->context);
+		
+			print(run);
+
+			//printf("wake up next: ");
+			*running = *pop(run);
+			print(run);
+			//printf("%p\n", run);
+
+			//printf("new: %p\n---------------\n", *running);
+	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
+			swapcontext(old, &((*running)->context));	
+		}
+	}
+
+		
+
 
 	if (value_ptr != NULL) 
 		*value_ptr = *thread->res;

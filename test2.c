@@ -4,10 +4,9 @@
 void *printHello()
 {
 	int x = 0;
-	while(x < 100) {
+	while(x < 1000) {
 		x++;
 	}
-	printf("fdsf");
 	return NULL;//(void *)50;
 
 }
@@ -15,10 +14,9 @@ void *printHello()
 void *printBye()
 {
 	int x = 0;
-	while(x < 100) {
+	while(x < 10000000) {
 		x++;
 	}
-	printf("dsf");
 	return NULL;
 
 }

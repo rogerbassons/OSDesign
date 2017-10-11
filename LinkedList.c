@@ -1,16 +1,19 @@
 #include "LinkedList.h"
 #include <stdlib.h>
+#include <stdio.h>
 
-Node *newNode(LinkedList *l, my_pthread_t t) {
+Node *newNode(LinkedList *l, my_pthread_t *t) {
 	Node *new = (Node*)malloc(sizeof(Node));
-	new->threadId = t;
+	new->thread = (my_pthread_t *) malloc(sizeof(my_pthread_t));
+	*(new->thread) = *t;
 	new->next = NULL;
 	return new;
 }
 
 
-void push(LinkedList *l, my_pthread_t t) {
+void push(LinkedList *l, my_pthread_t *t) {
 	Node* n = newNode(l,t);
+	//printf("push: %p\n\n", *t);
 	if (l->tail == NULL) {
 		l->nitems = 0;
 		l->head = l->tail = n;
@@ -22,7 +25,7 @@ void push(LinkedList *l, my_pthread_t t) {
 	
 }
 
-my_pthread_t pop(LinkedList *l) {
+my_pthread_t *pop(LinkedList *l) {
 	Node *n = l->head;
 	l->head = l->head->next;
 	
@@ -30,10 +33,11 @@ my_pthread_t pop(LinkedList *l) {
 		l->tail = NULL;
 	}
 	
-	my_pthread_t t = n->threadId;
-	free(n);
+	//my_pthread_t t = n->threadId;
+	//free(n);
 	l->nitems--;
-	return t;
+	//printf("pop: %p\n\n", *(n->thread)); 
+	return n->thread;
 }
 
 
@@ -41,8 +45,8 @@ int empty(LinkedList *l) {
 	return l->head == NULL;
 }
 
-my_pthread_t front(LinkedList *l) {
-	return l->head->threadId;
+my_pthread_t *front(LinkedList *l) {
+	return l->head->thread;
 }
 
 unsigned int nelements(LinkedList *l) {
@@ -51,7 +55,10 @@ unsigned int nelements(LinkedList *l) {
 
 void print(LinkedList *l) {
 	Node *n = l->head;
+	//printf("LIST:\n\n");
 	while (n != NULL) {
+		//printf("%p | ", *(n->thread));
 		n = n->next;
 	}
+	//printf("ENDLIST\n\n");
 }

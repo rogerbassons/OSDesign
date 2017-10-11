@@ -5,7 +5,7 @@ struct sthread;
 typedef sthread* my_pthread_t;
 
 typedef struct node {
-	my_pthread_t threadId;	
+	my_pthread_t *thread;	
 	struct node *next;
 	struct node *prev;
 } Node;
@@ -16,11 +16,11 @@ typedef struct {
 	unsigned int nitems;
 } LinkedList;
 
-void push(LinkedList *l, my_pthread_t t);
+void push(LinkedList *l, my_pthread_t *t);
 
-my_pthread_t pop(LinkedList *l);
+my_pthread_t *pop(LinkedList *l);
 
-my_pthread_t front(LinkedList *l);
+my_pthread_t *front(LinkedList *l);
 int empty(LinkedList *l);
 unsigned int nelements(LinkedList *l);
 void print(LinkedList *l);
