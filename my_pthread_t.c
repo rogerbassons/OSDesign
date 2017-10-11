@@ -130,7 +130,7 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 		
 		sigemptyset(&(t->context.uc_sigmask));
 		
-		char *stack = (char*) malloc(sizeof(STACK_SIZE));
+		char *stack = (char*) malloc(STACK_SIZE);
 		t->context.uc_stack.ss_sp = stack;
 		t->context.uc_stack.ss_size = STACK_SIZE;
 		t->context.uc_stack.ss_flags = 0;
