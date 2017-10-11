@@ -8,7 +8,8 @@ void *increment1(void *x)
 	int *x_ptr = (int *)x;
 
 	my_pthread_mutex_lock(&m);
-	for (int i = 0; i < 1000000000; i++) {
+	int i;
+	for (i = 0; i < 1000000000; i++) {
 		++*x_ptr;
 	}
 	my_pthread_mutex_unlock(&m);
@@ -24,7 +25,8 @@ void *increment2(void *x)
 
 	my_pthread_mutex_lock(&m);
 
-	for (int i = 0; i < 100000000; i++) {
+	int i;
+	for (i = 0; i < 100000000; i++) {
 		++*x_ptr;
 	}
 	my_pthread_mutex_unlock(&m);
