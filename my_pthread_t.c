@@ -9,7 +9,7 @@ void threadExit(void *res)
 	}
 	//printf("exit from : %p\n", (*running));
 	//printf("%p\n", run);
-	print(run);
+	//print(run);
 
 	(*running)->finished = 1;
 	if (res != NULL)
@@ -18,11 +18,11 @@ void threadExit(void *res)
 	while (!empty((*running)->waitJoin)) {
 		//printf("wake up: ");
 		push(run, pop((*running)->waitJoin));
-		print(run);
+		//print(run);
 	}
 	
 	if (!empty(run)) {
-		print(run);
+		//print(run);
 		//printf("exit thread, wake up next: ");
 		*running = *pop(run);
 		
@@ -47,9 +47,6 @@ void *threadRun(my_pthread_t t)
 	} else {
 		threadExit(NULL);
 	}
-
-	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
-	//printf("Exit Exit, have a nice jump...");
 }
 
 
@@ -58,15 +55,16 @@ void *threadRun(my_pthread_t t)
 void scheduler() {
 	//check for threads at run queue
 	
+	timer.it_value.tv_usec = QUANTUM;
 	//printf("scheduling...\n");
 	if (!empty(run)) {
 		
 		my_pthread_t *nextThread = pop(run);
 		//printf("saving thread: %p   -> ", *running);
 		push(run, running);
-		print(run);
+		//print(run);
 		*running = *nextThread;
-		
+	
 		//printf("setcontext scheduler: %p\n---------------\n", *running);
 		setcontext(&((*running)->context));	
 	} else {
@@ -82,7 +80,7 @@ void interrupt(int signum)
 	signalContext.uc_stack.ss_size = STACK_SIZE;
 	signalContext.uc_stack.ss_flags = 0;
 	sigemptyset(&signalContext.uc_sigmask);
-	sigaddset(&signalContext.uc_sigmask, SIGALRM);
+	sigaddset(&signalContext.uc_sigmask, SIGPROF);
 	makecontext(&signalContext, scheduler, 0, NULL);
 	
 
@@ -97,16 +95,16 @@ int setMyScheduler()
 	
 	sa.sa_handler = interrupt;
 	sigemptyset(&sa.sa_mask);
-	sigaddset (&sa.sa_mask, SIGALRM);
+	sigaddset (&sa.sa_mask, SIGPROF);
 	sa.sa_flags = 0; //SA_RESTART | SA_SIGINFO;
-	sigaction(SIGALRM, &sa, NULL);
+	sigaction(SIGPROF, &sa, NULL);
  
 	timer.it_value.tv_sec = 0;
 	timer.it_value.tv_usec = QUANTUM;
 	timer.it_interval.tv_sec = 0;
 	timer.it_interval.tv_usec = QUANTUM;
   
-	setitimer(ITIMER_REAL, &timer, NULL);
+	setitimer(ITIMER_PROF, &timer, NULL);
 }
 
 
@@ -166,7 +164,7 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 	createNewThread(thread, function, arg);
 	//printf("Create: ->");
 	push(run, thread);
-	print(run);
+	//print(run);
 
 
  
@@ -181,12 +179,10 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 // Explicit call to the my_pthread_t scheduler requesting that the current context can be swapped out and another can be scheduled if one is waiting. 
 void my_pthread_yield()
 {
-	timer.it_value.tv_sec = 0;
-	timer.it_value.tv_usec = QUANTUM;
-	timer.it_interval.tv_sec = 0;
-	timer.it_interval.tv_usec = QUANTUM;
-  
-	setitimer(ITIMER_REAL, &timer, NULL);
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask); 
+	interrupt(0);
+	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
 
 }
 
@@ -219,17 +215,17 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 	if (!thread->finished) {
 		//printf("wait: ");
 		push(thread->waitJoin, running);
-		print(run);
+		//print(run);
 		
 		if (!empty(run)) {
 		
 			ucontext_t *old = &((*running)->context);
 		
-			print(run);
+			//print(run);
 
 			//printf("wake up next: ");
 			*running = *pop(run);
-			print(run);
+			//print(run);
 			//printf("%p\n", run);
 
 			//printf("new: %p\n---------------\n", *running);
