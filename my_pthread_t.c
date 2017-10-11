@@ -246,8 +246,10 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 //Initializes a my_pthread_mutex_t created by the calling thread. Attributes are ignored.
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr)
 {
-	(*mutex)->state = 0;
-	(*mutex)->wait = (LinkedList *) malloc(sizeof(LinkedList));
+	lock *l = (lock *) malloc(sizeof(lock));
+	(*mutex) = l;
+	l->state = 0;
+	l->wait = (LinkedList *) malloc(sizeof(LinkedList));
 }
 
 int testAndSet(my_pthread_mutex_t *m) {
@@ -259,10 +261,13 @@ int testAndSet(my_pthread_mutex_t *m) {
 //Locks a given mutex, other threads attempting to access this mutex will not run until it is unlocked.
 int my_pthread_mutex_lock(my_pthread_mutex_t *mutex)
 {
+
 	my_pthread_mutex_t m = *mutex;
+	
 	while(testAndSet(mutex) == 1) {
 		sigset_t oldmask;
 		sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+
 		if (m->state == 1) {
 			push(m->wait, running);
 			timer.it_value.tv_usec = QUANTUM;
@@ -313,6 +318,7 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
 	}
 	m->state = 0;
 	free(m->wait);
+	free(m);
 	sigprocmask(SIG_SETMASK, &oldmask, NULL); 
 }
 
