@@ -4,10 +4,21 @@
 void *printHello()
 {
 	int x = 0;
-	while(x < 2000) {
-		printf("test\n");
+	while(x < 100) {
 		x++;
 	}
+	printf("fdsf");
+	return NULL;//(void *)50;
+
+}
+
+void *printBye()
+{
+	int x = 0;
+	while(x < 100) {
+		x++;
+	}
+	printf("dsf");
 	return NULL;
 
 }
@@ -16,8 +27,9 @@ int main()
 {
 
 	my_pthread_t t1;
+	my_pthread_t t2;
 
-	/* create a second thread which executes inc_x(&x) */
+
 	if(my_pthread_create(&t1, NULL, printHello, NULL)) {
 
 		fprintf(stderr, "Error creating thread\n");
@@ -26,9 +38,15 @@ int main()
 	}
 
 
-	my_pthread_join(t1, NULL);
+	my_pthread_create(&t2, NULL, printBye, NULL);
 
-	printf("Bye\n");
+	void *p;
+
+	my_pthread_join(t1, NULL);
+	my_pthread_join(t2, NULL);
+
+	//printf("%d\n", *(int *)p);
+
 	return 0;
 
 }
