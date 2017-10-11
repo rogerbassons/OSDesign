@@ -22,13 +22,12 @@ struct sthread {
 typedef sthread* my_pthread_t;
 
 my_pthread_t running;
-sthread mainThread;
-my_pthread_t mainThreadId;
+sthread *mainThread;
 ucontext_t signalContext;
 char signalStack[STACK_SIZE];
 
-LinkedList run;
-LinkedList wait;
+LinkedList *run;
+LinkedList *wait;
 
 struct sigaction sa;
 struct itimerval timer;

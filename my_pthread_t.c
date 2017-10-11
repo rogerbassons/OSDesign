@@ -12,9 +12,9 @@ void threadExit(void *res)
 	if (res != NULL)
 		running->res = &res;
 	
-	if (!empty(&run)) {
+	if (!empty(run)) {
 		
-		running = pop(&run);
+		running = pop(run);
 		
 		//printf("exit to: %p\n---------------\n", running);
 		setcontext(&(running->context));	
@@ -44,11 +44,11 @@ void scheduler() {
 	//check for threads at run queue
 	
 	//printf("scheduling...\n");
-	if (!empty(&run)) {
+	if (!empty(run)) {
 		
-		my_pthread_t nextThread = pop(&run);
+		my_pthread_t nextThread = pop(run);
 		
-		push(&run, running);
+		push(run, running);
 		running = nextThread;
 		
 		//printf("new: %p\n---------------\n", running);
@@ -71,8 +71,8 @@ void interrupt(int signum)
 		oldContext = &(running->context);
 	else {
 		// only runs once at the beginning
-		oldContext = &(mainThread.context);
-		running = &mainThread;
+		oldContext = &(mainThread->context);
+		running = mainThread;
 	}
 
 	//printf("old: %p\n", oldContext);
@@ -134,18 +134,21 @@ int my_pthread_create( my_pthread_t * thread, pthread_attr_t * attr, void *(*fun
 		return 1;
 	}
 
-	// only executed once (at the beginning)
-	// constructs the scheduler context and starts the periodic signal
-	
+	if (run == NULL) {
+		run = (LinkedList *) malloc(sizeof(LinkedList));
+		wait = (LinkedList *) malloc(sizeof(LinkedList));
+		mainThread = (sthread *) malloc(sizeof(sthread));
+	}	
 	createNewThread(thread, function, arg);
-	push(&run, *thread);
+	push(run, *thread);
  
 	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0) {
 		perror ("sigprocmask");
 		return 1;
 	}
 
-
+	// only executed once (at the beginning)
+	// constructs the scheduler context and starts the periodic signal
 	if (running == NULL) {
 		setMyScheduler();
 	}
