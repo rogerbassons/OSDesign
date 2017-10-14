@@ -13,7 +13,8 @@
 
 typedef struct sthread sthread;
 struct sthread {
-	unsigned int id;
+	unsigned long priority;
+	unsigned long born;
 	ucontext_t context;
 	void *(*function)(void*);
 	void *arg;

@@ -1,5 +1,6 @@
 #include "my_pthread_t.h"
 #include <signal.h>
+#include <time.h>
 
 void threadExit(void *res)
 {
@@ -118,6 +119,9 @@ int createNewThread(my_pthread_t *thread, void *(*function)(void*), void *arg)
 	t->function = function;
 	t->arg = arg;
 	t->finished = 0;
+	t->priority = 0;
+	t->born = (unsigned long) time(NULL);
+
 	if (getcontext(&(t->context)) != -1) {
 
 		t->context.uc_link = 0; 
