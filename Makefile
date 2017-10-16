@@ -28,4 +28,4 @@ LinkedList.o: LinkedList.c
 	gcc -c LinkedList.c
 
 clean:
-	rm *.o test test2
+	rm *.o test test2 test3

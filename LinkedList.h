@@ -17,7 +17,8 @@ typedef struct {
 } LinkedList;
 
 void push(LinkedList *l, my_pthread_t *t);
-
+void pushOrdered(int order, LinkedList *l, my_pthread_t *t);
+void orderByOldest(LinkedList *l);
 my_pthread_t *pop(LinkedList *l);
 
 my_pthread_t *front(LinkedList *l);

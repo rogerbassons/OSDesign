@@ -1,4 +1,8 @@
-#include <stdio.h>
+#// File:	externalMerge.c
+// Author:	Yujie REN
+// Date:	09/23/2017
+// Modified by Roger Bassons
+include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>

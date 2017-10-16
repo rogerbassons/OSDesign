@@ -1,6 +1,7 @@
 // File:	vectorMultiply.c
 // Author:	Yujie REN
 // Date:	09/23/2017
+// Modified by Roger Bassons
 
 #include <stdio.h>
 #include <unistd.h>
