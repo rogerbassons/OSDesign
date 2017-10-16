@@ -6,26 +6,18 @@ void threadExit(void *res)
 {
 	sigset_t oldmask;
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
-	//printf("exit from : %p\n", (*running));
-	//printf("%p\n", run);
-	//print(run);
 
 	(*running)->finished = 1;
 	if (res != NULL)
 		(*running)->res = &res;
 
 	while (!empty((*running)->waitJoin)) {
-		//printf("wake up: ");
 		pushOrdered(0, run, pop((*running)->waitJoin));
-		//print(run);
 	}
 
 	if (!empty(run)) {
-		//print(run);
-		//printf("exit thread, wake up next: ");
 		*running = *pop(run);
 
-		//printf("exit to: %p\n---------------\n", *running);
 		timer.it_value.tv_usec = QUANTUM;
 
 		sigprocmask(SIG_SETMASK, &oldmask, NULL);
@@ -52,29 +44,21 @@ void scheduler()
 
 	timer.it_value.tv_usec = QUANTUM;
 	nSchedulings += 1;
-	if (nSchedulings > 50) {//nSchedulings > 0 && nSchedulings/QUANTUM > 30000000) {
-		print(run);
+	if (nSchedulings > 50) {
 		orderByOldest(run);
-		print(run);
-		printf("fdsfsdf\n");
 		nSchedulings = 0;
 	}
 
 	(*running)->priority += 1;
 
-	printf("scheduling...\n");
 	if (!empty(run)) {
 
 		my_pthread_t *nextThread = pop(run);
-		printf("saving thread: %p   -> ", *running);
 		pushOrdered(0, run, running);
-		//print(run);
 		*running = *nextThread;
 
-		printf("setcontext scheduler: %p\n---------------\n", *running);
 		setcontext(&((*running)->context));
 	} else {
-		//printf("resuming scheduler: %p\n---------------\n", *running);
 		setcontext(&((*running)->context));
 	}
 }
@@ -89,12 +73,10 @@ void interrupt(int signum)
 	sigaddset(&signalContext.uc_sigmask, SIGPROF);
 	makecontext(&signalContext, scheduler, 0, NULL);
 
-	//printf("interrupt old: %p\n", *running);
 
 	swapcontext(&(*running)->context, &signalContext);
 }
 
-// sets the periodic signal to run scheduler
 int setMyScheduler()
 {
 	nSchedulings = 0;
@@ -102,7 +84,7 @@ int setMyScheduler()
 	sa.sa_handler = interrupt;
 	sigemptyset(&sa.sa_mask);
 	sigaddset(&sa.sa_mask, SIGPROF);
-	sa.sa_flags = 0;	//SA_RESTART | SA_SIGINFO;
+	sa.sa_flags = 0;	
 	sigaction(SIGPROF, &sa, NULL);
 
 	timer.it_value.tv_sec = 0;
@@ -115,7 +97,6 @@ int setMyScheduler()
 
 int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg)
 {
-	// new thread construction
 	sthread *t = (sthread *) malloc(sizeof(sthread));
 	*thread = t;
 	t->waitJoin = (LinkedList *) malloc(sizeof(LinkedList));
@@ -143,8 +124,7 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 	}
 }
 
-	int
-my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
+int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr, 
 		void *(*function) (void *), void *arg)
 {
 
@@ -161,9 +141,7 @@ my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
 
 	createNewThread(thread, function, arg);
-	//printf("Create: ->");
 	pushOrdered(0, run, thread);
-	//print(run);
 
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
@@ -194,32 +172,15 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
 
-	/*while(1) {
-	  sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask); 
-	  printf("%i\n", thread->finished);
-	  printf("thread: %p\n", thread);
-	  printf("main: %p\n", (*running));
-	  sigprocmask(SIG_SETMASK, &oldmask, NULL); 
-	  int i = 0;
-	  } */
-
 	if (!thread->finished) {
-		//printf("wait: ");
 		pushOrdered(0, thread->waitJoin, running);
-		//print(run);
 
 		if (!empty(run)) {
 
 			ucontext_t *old = &((*running)->context);
 
-			//print(run);
-
-			//printf("wake up next: ");
 			*running = *pop(run);
-			//print(run);
-			//printf("%p\n", run);
-
-			//printf("new: %p\n---------------\n", *running);
+			
 			sigprocmask(SIG_SETMASK, &oldmask, NULL);
 			swapcontext(old, &((*running)->context));
 		}
@@ -234,8 +195,7 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 }
 
 //Initializes a my_pthread_mutex_t created by the calling thread. Attributes are ignored.
-	int
-my_pthread_mutex_init(my_pthread_mutex_t * mutex,
+int my_pthread_mutex_init(my_pthread_mutex_t * mutex,
 		const pthread_mutexattr_t * mutexattr)
 {
 	lock *l = (lock *) malloc(sizeof(lock));

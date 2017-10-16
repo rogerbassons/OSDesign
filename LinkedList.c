@@ -16,7 +16,6 @@ Node *newNode(LinkedList *l, my_pthread_t *t) {
 
 void push(LinkedList *l, my_pthread_t *t) {
 	Node* n = newNode(l,t);
-	//printf("push: %p\n\n", *t);
 	if (l->tail == NULL) {
 		l->nitems = 1;
 		l->head = l->tail = n;
@@ -32,7 +31,6 @@ void push(LinkedList *l, my_pthread_t *t) {
 void pushOrdered(int order, LinkedList *l, my_pthread_t *t) 
 {
 	Node* n = newNode(l,t);
-	//printf("push: %p\n\n", *t);
 	if (l->tail == NULL) {
 		// empty list
 		l->nitems = 1;
@@ -88,10 +86,7 @@ my_pthread_t *pop(LinkedList *l) {
 		l->tail = NULL;
 	}
 	
-	//my_pthread_t t = n->threadId;
-	//free(n);
 	l->nitems--;
-	//printf("pop: %p\n\n", *(n->thread)); 
 	return n->thread;
 }
 
