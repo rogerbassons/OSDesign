@@ -1,0 +1,70 @@
+# Student: Roger Bassons Renart
+# NetID: rb1018
+
+## Implementation overview
+
+---
+
+* I implemented a RR scheduler that priority to jobs that finish before the fixed 
+time quanta (25ms). Around every 4 seconds(~150 scheduler runs). I reorder the 
+run queue giving priority to the oldest jobs no matter what. This could be improved 
+(with more time) to avoid that if there are a lot of low priority jobs they 
+don't starve to run. The way the scheduler works causes priority inversion: oldest
+threads (low priority) get pushed to the front of the running queue every 4
+seconds to aviod starvation.
+
+* My implementation of the waiting queue is not global: there is a waiting queue for
+each mutex. This way, a thread that is waiting for a mutex is never scheduled to run.
+Once the mutex is released, the next thread waiting for the mutex is pushed to the
+run queue. If no threads are waiting for the mutex, the mutex is completely unlocked.
+This mutex implementation doesn't induce priority inversion because waiting threads
+aren't scheduled to run, therefore waiting threads' priority is never lowered.
+
+* I developed a Linked List to implement thread queues.
+
+* In order to aviod being interrupted while running the scheduler I use sigprocmask 
+function to block and ignore the interrupt signal.
+
+* Scheduler variables, i.e. run queue, are allocated on the heap(malloc) instead of the 
+stack to avoid losing changes when switching context.
+
+* In addition to the pthreads implementation you will find three test programs 
+that check the correctness of the implementation:
+
+  - test1.c: checks pthread_create, pthread_exit, pthread_join among others.
+
+  - test2.c: checks scheduler and pthread_yield among others (never ends).
+
+  - test3.c: checks mutex among others.
+
+
+## Benchmarking
+
+---
+
+I couldn't use the latest benchmarking code from the TA because unfortunately the
+latest code was released too close to the assignment deadline and I've got a very tight
+schedule. I modified the first versions of the benchmarking code to be able to
+run it:
+
+### vectorMultiply
+
+threads 1000  
+array size 100000000
+
+my_pthread_t time: 31.901s
+
+pthread_t    time: 25.489s
+
+
+### parallelCal
+
+threads 1000
+C size 10000000
+R size 100000
+
+my_pthread_t
+real 1m07.584s
+
+pthread_t
+real 26.239s
