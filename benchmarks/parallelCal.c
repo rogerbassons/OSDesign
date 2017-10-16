@@ -58,7 +58,7 @@ int main() {
 	for (i = 0; i < THREAD_NUM; ++i) {
 		char *name = (char *) malloc(sizeof(char));
 		sprintf(name, "%d", i+1);
-		my_pthread_create(&thread[i], NULL, &parallel_calculate, name);
+		my_pthread_create(&thread[i], NULL, parallel_calculate, name);
 	}
 
 	for (i = 0; i < THREAD_NUM; ++i)

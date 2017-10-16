@@ -49,7 +49,7 @@ int main() {
 	for (i = 0; i < THREAD_NUM; ++i) {
 		char *name = (char *) malloc(sizeof(char));
 		sprintf(name, "%d", i+1);
-		my_pthread_create(&thread[i], NULL, &vector_multiply, name);
+		my_pthread_create(&thread[i], NULL, vector_multiply, name);
 	}
 
 	for (i = 0; i < THREAD_NUM; ++i)
