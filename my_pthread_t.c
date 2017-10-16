@@ -44,7 +44,7 @@ void scheduler()
 
 	timer.it_value.tv_usec = QUANTUM;
 	nSchedulings += 1;
-	if (nSchedulings > 50) {
+	if (nSchedulings > 150) {
 		orderByOldest(run);
 		nSchedulings = 0;
 	}
@@ -153,6 +153,9 @@ void my_pthread_yield()
 {
 	sigset_t oldmask;
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	if ((*running)->priority > 0) { 
+		(*running)->priority -= 1;
+	}
 	interrupt(0);
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
@@ -222,7 +225,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t * mutex)
 		sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
 
 		if (m->state == 1) {
-			pushOrdered(0, m->wait, running);
+			push(m->wait, running);
 			timer.it_value.tv_usec = QUANTUM;
 
 			ucontext_t *old = &((*running)->context);
@@ -246,7 +249,7 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t * mutex)
 
 	if (!empty(m->wait)) {
 		pushOrdered(0, run, pop(m->wait));
-	}
+	} 
 
 	m->state = 0;
 
