@@ -12,7 +12,7 @@ void *inc_x(void *x_void_ptr)
 	printf("x increment finished\n");
 
 	int x = 500;
-	pthread_exit(&x);
+	my_pthread_exit(&x);
 
 	/* the function must return something - NULL will do */
 	return NULL;

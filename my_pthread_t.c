@@ -162,7 +162,7 @@ void my_pthread_yield()
 }
 
 // Explicit call to the my_pthread_t library to end the pthread that called it. If the value_ptr isn't NULL, any return value from the thread will be saved. 
-void pthread_exit(void *value_ptr)
+void my_pthread_exit(void *value_ptr)
 {
 	threadExit(value_ptr);
 }
