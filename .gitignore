@@ -1,5 +1,11 @@
 *.o
 *~
 *.swp
+*.a
 test
 test2
+test3
+vectorMultiply
+parallelCal
+externalCal
+

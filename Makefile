@@ -1,31 +1,20 @@
-all: test test2 test3
+CC = gcc
+CFLAGS = -g -c
+AR = ar -rc
+RANLIB = ranlib
 
 
-test: test.o my_pthread_t.o LinkedList.o
-	gcc test.o my_pthread_t.o LinkedList.o -o test
+Target: my_pthread.a
 
-test2: test2.o my_pthread_t.o LinkedList.o
-	gcc test2.o my_pthread_t.o LinkedList.o -o test2
+my_pthread.a: my_pthread.o LinkedList.o
+	$(AR) libmy_pthread.a my_pthread.o LinkedList.o
+	$(RANLIB) libmy_pthread.a
 
-test3: test3.o my_pthread_t.o LinkedList.o
-	gcc test3.o my_pthread_t.o LinkedList.o -o test3
+my_pthread.o: my_pthread_t.h
+	$(CC) -pthread $(CFLAGS) my_pthread.c
 
-
-test.o: test.c
-	gcc -c test.c
-
-test2.o: test2.c
-	gcc -c test2.c
-
-test3.o: test3.c
-	gcc -c test3.c
-
-
-my_pthread_t.o: my_pthread_t.c
-	gcc -c my_pthread_t.c
-
-LinkedList.o: LinkedList.c
-	gcc -c LinkedList.c
+LinkedList.o: LinkedList.h
+	$(CC) $(CFLAGS) LinkedList.c
 
 clean:
-	rm *.o test test2 test3
+	rm -rf testfile *.o *.a

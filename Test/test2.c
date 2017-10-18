@@ -1,4 +1,4 @@
-#include "my_pthread_t.h"
+#include "../my_pthread_t.h"
 #include <stdio.h>
 
 void *printHello()
@@ -7,7 +7,7 @@ void *printHello()
 	while(1) {
 		printf("Hello %i\n", x);
 		x++;
-		my_pthread_yield();
+		pthread_yield();
 	}
 	return NULL;//(void *)50;
 
@@ -40,17 +40,17 @@ void *printTest()
 int main()
 {
 
-	my_pthread_t t1;
-	my_pthread_t t2;
-	my_pthread_t t3;
+	pthread_t t1;
+	pthread_t t2;
+	pthread_t t3;
 
 
-	my_pthread_create(&t1, NULL, printHello, NULL);
-	my_pthread_create(&t2, NULL, printBye, NULL);
-	my_pthread_create(&t3, NULL, printTest, NULL);
+	pthread_create(&t1, NULL, printHello, NULL);
+	pthread_create(&t2, NULL, printBye, NULL);
+	pthread_create(&t3, NULL, printTest, NULL);
 
 
-	my_pthread_join(t1, NULL);
+	pthread_join(t1, NULL);
 
 
 	return 0;

@@ -185,6 +185,7 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 			*running = *pop(run);
 			
 			sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
 			swapcontext(old, &((*running)->context));
 		}
 	}

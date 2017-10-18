@@ -1,6 +1,11 @@
 #ifndef MY_PTHREAD_T_H
 #define MY_PTHREAD_T_H
 
+#define _GNU_SOURCE
+
+/* To use real pthread Library in Benchmark, you have to comment the USE_MY_PTHREAD macro */
+#define USE_MY_PTHREAD 1
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <ucontext.h>
@@ -86,5 +91,18 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex);
 
 int getPriority(my_pthread_t *t);
 unsigned int getTimeCreated(my_pthread_t *t);
+
+
+#ifdef USE_MY_PTHREAD
+#define pthread_t my_pthread_t
+#define pthread_mutex_t my_pthread_mutex_t
+#define pthread_create my_pthread_create
+#define pthread_exit my_pthread_exit
+#define pthread_join my_pthread_join
+#define pthread_mutex_init my_pthread_mutex_init
+#define pthread_mutex_lock my_pthread_mutex_lock
+#define pthread_mutex_unlock my_pthread_mutex_unlock
+#define pthread_mutex_destroy my_pthread_mutex_destroy
+#endif
 
 #endif
