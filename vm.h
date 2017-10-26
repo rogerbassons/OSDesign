@@ -5,8 +5,7 @@
 
 #define _GNU_SOURCE
 
-#define LIBRARYREQ 0
-#define THREADREQ 1
+#define THREADREQ 0
 
 #define PHYSICAL_SIZE 100 //8000000 //8MB
 char *mem; // physical memory
