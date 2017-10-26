@@ -4,12 +4,14 @@
 void *getNextFree(size_t size)
 {
 	int next = mem[0];
-	do {
-		next += size;
-		if (next >= PHYSICAL_SIZE)
-			next = next % PHYSICAL_SIZE + 1;
-	} while (mem[next] && next != mem[0]); 
 
+	if (mem[next]) {
+		do {
+			next += size;
+			if (next >= PHYSICAL_SIZE)
+				next = next % PHYSICAL_SIZE + 1;
+		} while (mem[next] && next != mem[0]); 
+	}
 	mem[0] = next;
 	mem[next] = 1;
 	return &mem[next+1];
