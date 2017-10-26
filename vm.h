@@ -1,11 +1,14 @@
 #ifndef MY_VM_H
 #define MY_VM_H
 
+#include <stdio.h>
+
 #define _GNU_SOURCE
 
+#define LIBRARYREQ 0
 #define THREADREQ 1
 
-#define PYISICAL_SIZE 8000000 //8MB
+#define PHYSICAL_SIZE 100 //8000000 //8MB
 char *mem; // physical memory
 
 /* Allocate memory block
@@ -15,7 +18,7 @@ The content of the newly allocated block of memory is not initialized, remaining
 
 If size is zero, returns a null pointer.
 */
-void* myallocate (size_t size);
+void* myallocate (size_t size, char *file, char *line, int request);
 
 /* Deallocate memory block
 A block of memory previously allocated by a call to myallocate is deallocated, making it available again for further allocations.
@@ -25,7 +28,8 @@ If ptr does not point to a block of memory allocated with the above functions, i
 If ptr is a null pointer, the function does nothing.
 
 Notice that this function does not change the value of ptr itself, hence it still points to the same (now invalid) location. */
-void free (void* ptr);
+void mydeallocate(void* ptr, char *file, char *line, int request);
+
 
 
 
