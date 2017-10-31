@@ -101,6 +101,8 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 	*thread = t;
 	t->waitJoin = (LinkedList *) malloc(sizeof(LinkedList));
 
+	t->id = nextId;
+	nextId++;
 	t->function = function;
 	t->arg = arg;
 	t->finished = 0;
@@ -133,6 +135,10 @@ int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 		mainThread = (sthread *) malloc(sizeof(sthread));
 		running = (my_pthread_t *) malloc(sizeof(my_pthread_t));
 
+		nextId = 2;
+		mainThread.id = 1;
+		mainThread.priority = 0;
+		mainThread.born = (unsigned long)time(NULL);
 		nSchedulings = 0;
 		*running = mainThread;
 		setMyScheduler();

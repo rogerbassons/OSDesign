@@ -39,7 +39,7 @@ struct lock {
 };
 typedef lock* my_pthread_mutex_t;
 
-
+unsigned nextId;
 LinkedList *run; // run queue, processes that want to run and are not waiting for a lock
 my_pthread_t *running; // thread currently running (only one cpu)
 sthread *mainThread; // store the context of the calling main program
