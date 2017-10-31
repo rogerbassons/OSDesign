@@ -1,64 +1,91 @@
 #include <stdlib.h>
 #include "vm.h"
 #include "my_pthread_t.h"
-#include <math.h>
+#include <string.h>
 
-#define GetBit(var, bit) ((var & (1 << bit)) != 0) // Returns true / false if bit is set
-#define SetBit(var, bit) (var |= (1 << bit))
-#define FlipBit(var, bit) (var ^= (1 << bit))
+typedef struct spaceNode {
+	unsigned free;
+	char *start;
+	unsigned size;
+	struct spaceNode *next;
+	struct spaceNode *prev;
+} SpaceNode;
 
-int findFreePage(size_t size)
+
+SpaceNode *getNextSpace(SpaceNode *old)
 {
-	int next = -1;
-	int i = 1;
-	while (i < mem[0] && next == -1) {
-		char *c = &mem[i];
-		int bit = 0;
-		while (bit < 8 && next == -1) {
-			if ((*c & (1 << bit)) == 0) {
-				next = mem[0] + (i-1) * size;
-				(*c |= (1 << bit));
-			}
-			bit++;
-		}
-		i++;
-	}
-	return next;
+	SpaceNode *n = NULL;
+	if (old == NULL)
+		n = (SpaceNode *) &mem[0];
+	else
+		n = old->next;
+
+	return n;
 }
 
-void createSpace(int free, int offset, size_t size)
+SpaceNode *findFreeSpace(size_t size)
 {
-	char *c = &mem[offset];
+	SpaceNode *n = getNextSpace(NULL);
 
-	int f = size - 1;
-	(*c |= (1 << 0)); // set segment is free (1)
+	while (n != NULL && !(n->free) && n->size < size)
+		n = getNextSpace(n);
 
-	int j = 1;
-	while(j < 8 && f != 0) {
+	if (n == NULL)
+		return NULL;
+	else if (n->free && n->size > size)
+		return n;
 
-		int r = f % 2;
-		f /= 2;
+	
+}
 
-		(*c |= (r << j)); // write segment size at  [1 , 7] bits
+int createSpace(SpaceNode *n, size_t size)
+{
+	SpaceNode *b = n->next;
+	SpaceNode new;
+	new.free = 1;
+	new.prev = (SpaceNode *)&n;
+	new.next = b;
 
-		j++;
-	     		
-	}
+	if (n->size < size)
+		return 1;
+	else {
+		int restSize = n->size - size;
+		if (restSize > sizeof(SpaceNode)) {
+			n->size = size;
+			new.size = restSize;
+
+			void *pos = n->start + size;
+			new.start = pos + sizeof(SpaceNode);
+
+			n->next = (SpaceNode *) pos;
+			memcpy(pos, &new, sizeof(SpaceNode));
+
+		} 
+		    
+
+		n->free = 0;
+		return 0;
+	}	
 }
 
 
 void *getFreePage(size_t size, unsigned pid)
 {
-	int i = findFreePage(size);
+	SpaceNode *n = findFreeSpace(size);
 	
-	if (i == -1) {
+	if (n == NULL) {
 		return NULL;
 	} else {
 		
-		createSpace(1, i, size);
+		if (createSpace(n, size)) {
+			perror("Error creating space");
+			return NULL;
+		}
+			
 		//setProcessPage(pid);
-		return &mem[i];
+		return (void *)n->start;
 	}
+	return (void *)n->start;
 }
 
 void *getFreeThread(size_t size)
@@ -66,97 +93,55 @@ void *getFreeThread(size_t size)
 	//unsigned pid = (*running)->id;
 	unsigned pid = 1;
 
-	unsigned page = mem[0]; //getProcessPage(pid); //TODO
-
-	char *c = &mem[page]; 
-
-	int s = 0;
-	int j = 1;
-	while(j < 8) {
-		if ((*c & (1 << j)) != 0)
-			s += pow(2,j-1);
-		j++;
-	     		
-	}
-
-
+	//getProcessPage(pid);
 	//TODO
+	return NULL;
 }
 
 void printMemory(size_t size)
 {
-	int i = 0;
-	printf("Bitmap size: %u\n", mem[0]);
-	printf("Bitmap:\n---\n");
-	for (i = 1; i < mem[0]; i++) {
-		char *c = &mem[i];
-		int bit;
-		for (bit = 0; bit < 8; bit++) {
-			printf("%i ", ((*c & (1 << bit)) != 0));
-		}
-	}
-	printf("\n---\n");
+	SpaceNode *n = getNextSpace(NULL);
 
-	int page = 1;
-	int j = 0;
-	printf("Page %i: ", page);
-	for (i = mem[0]; i < PHYSICAL_SIZE; i++) {
-		if (j == 0) {
-			printf("-- Free: ");
-			char *c = &mem[i];
-			int bit;
-			for (bit = 0; bit < 8; bit++) {
-				printf("%i ", ((*c & (1 << bit)) != 0));
-			}
-			printf(" -- \n");
+	int i = 1;
+	while (n != NULL) {
+		printf("----- Page %i -----\n", i);
+		i++;
+		printf("Free: %i\n", n->free);
+		printf("Size: %i\n", n->size);
+		printf("Contents:\n");
+		int j = 0;
+		printf("| ");
+		while (j < n->size) {
+			char *ptr = (n->start + j);
+			if (*ptr != 0)
+				printf("%i | ", *ptr);
+			else
+				printf("NULL | ");
+				
+			j++;
 		}
-		else 
-			printf("%i ", mem[i]);
-		j++;
-		if (j > size - 1) {
-			j = 0;
-			printf("\n\n");
-			page++;
-			printf("Page %i: ", page);
-		}
+		n = getNextSpace(n);	
+		printf("\n");
+
 	}
-	printf("\n");
+
 }
-
-void disableInvalidBits(int invalid)
-{
-	int i = mem[0] - 1;
-	int bits = 0;
-	while (invalid > 0 && i > 0 && bits < invalid) {
-		char *c = &mem[i];
-		int bit = 7;
-		while (bits < invalid && bit >= 0) {
-			(*c |= (1 << bit));
-			bits++;
-			bit--;
-		}
-		i--;		
-	}
-}
-
 
 void *myallocate (size_t size, char *file, char *line, int request)
 {
 
-	if (mem == NULL) {
-		mem = calloc(PHYSICAL_SIZE, sizeof(char));
-		
-		double pages = ceil((double)PHYSICAL_SIZE / size);
-		unsigned bitmapSize = ceil(pages / 8);
-		mem[0] = (int) bitmapSize + 1;
-		
-		printf("Bitmap size: %u\n", bitmapSize);
-		
-		unsigned invalid = bitmapSize * 8 - pages;
-		printf("%i invalid bitmap bits\n", invalid);
-		
-		disableInvalidBits(invalid);
+	if (first == NULL) {
+		int a = 1;
+		first = &a;
 
+		SpaceNode new;
+
+		new.free = 1;
+		new.next = new.prev = NULL;
+		new.size = PHYSICAL_SIZE - sizeof(SpaceNode);
+		new.start = &mem[0] + sizeof(SpaceNode);
+
+		memcpy(&mem[0], &new, sizeof(SpaceNode));
 	}
 
 	void *ptr = NULL;

@@ -7,8 +7,9 @@
 
 #define THREADREQ 0
 
-#define PHYSICAL_SIZE 400 //8000000 //8MB
-char *mem; // physical memory
+#define PHYSICAL_SIZE 100 //8000000 //8MB
+static char mem[PHYSICAL_SIZE]; // physical memory
+int *first;
 
 /* 
 Allocate memory block
