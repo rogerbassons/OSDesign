@@ -18,6 +18,7 @@
 // My pthread structure
 typedef struct sthread sthread;
 struct sthread {
+	int id;
 	unsigned priority;
 	unsigned long born;
 	ucontext_t context;

@@ -2,8 +2,8 @@
 
 int main()
 {
-	char *a = myallocate(10, NULL, NULL, 1);
-	int *n = myallocate(sizeof(int), NULL, NULL, 0); 
+	char *a = myallocate(40, NULL, NULL, 1);
+	//int *n = myallocate(sizeof(int), NULL, NULL, 0); 
 	return 0;
 
 }

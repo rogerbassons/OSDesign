@@ -7,26 +7,34 @@
 
 #define THREADREQ 0
 
-#define PHYSICAL_SIZE 100 //8000000 //8MB
+#define PHYSICAL_SIZE 400 //8000000 //8MB
 char *mem; // physical memory
 
-/* Allocate memory block
-Allocates a block of size bytes of memory, returning a pointer to the beginning of the block.
+/* 
+Allocate memory block
+Allocates a block of size bytes of memory, returning a pointer to the beginning
+of the block.
 
-The content of the newly allocated block of memory is not initialized, remaining with indeterminate values.
+The content of the newly allocated block of memory is not initialized, remaining
+with indeterminate values.
 
 If size is zero, returns a null pointer.
 */
 void* myallocate (size_t size, char *file, char *line, int request);
 
-/* Deallocate memory block
-A block of memory previously allocated by a call to myallocate is deallocated, making it available again for further allocations.
+/* 
+Deallocate memory block
+A block of memory previously allocated by a call to myallocate is deallocated,
+making it available again for further allocations. 
 
-If ptr does not point to a block of memory allocated with the above functions, it causes undefined behavior.
+If ptr does not point to a block of memory allocated with the above functions,
+it causes undefined behavior. 
 
 If ptr is a null pointer, the function does nothing.
 
-Notice that this function does not change the value of ptr itself, hence it still points to the same (now invalid) location. */
+Notice that this function does not change the value of ptr itself, hence it
+still points to the same (now invalid) location. 
+*/ 
 void mydeallocate(void* ptr, char *file, char *line, int request);
 
 
