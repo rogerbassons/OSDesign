@@ -104,24 +104,30 @@ void printMemory(size_t size)
 
 	int i = 1;
 	while (n != NULL) {
-		printf("----- Page %i -----\n", i);
-		i++;
-		printf("Free: %i\n", n->free);
+		if (n->free)
+			printf("----- Free Space -----\n", i);
+		else {
+			printf("----- Page %i -----\n", i);
+			i++;
+		}
 		printf("Size: %i\n", n->size);
-		printf("Contents:\n");
-		int j = 0;
-		printf("| ");
-		while (j < n->size) {
-			char *ptr = (n->start + j);
-			if (*ptr != 0)
-				printf("%i | ", *ptr);
-			else
-				printf("NULL | ");
+		if (!n->free) {
+			printf("Contents:\n");
+			int j = 0;
+			printf("| ");
+			while (j < n->size) {
+				char *ptr = (n->start + j);
+				if (*ptr != 0)
+					printf("%i | ", *ptr);
+				else
+					printf("NULL | ");
 				
-			j++;
+				j++;
+			}
+			printf("\n");
 		}
 		n = getNextSpace(n);	
-		printf("\n");
+
 
 	}
 
@@ -153,6 +159,7 @@ void *myallocate (size_t size, char *file, char *line, int request)
 		default:
 			// reserve a page
 			ptr = getFreePage(size, request);
+			printf("\nAllocating page...\n\n");
 			printMemory(size);
 
 	}
@@ -227,6 +234,7 @@ void mydeallocate(void* ptr, char *file, char *line, int request)
 		default:
 			// deallocate a page
 			removePage(ptr);
+			printf("\nDeallocating page...\n\n");
 			printMemory(0);
 
 			
