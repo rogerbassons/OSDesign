@@ -159,6 +159,64 @@ void *myallocate (size_t size, char *file, char *line, int request)
 	return ptr;
 }
 
+int removePage(void *ptr)
+{
+	SpaceNode *n = ptr - sizeof(SpaceNode);
+
+	if (n->free)
+		return 0;
+
+	SpaceNode *a = n->prev;
+	SpaceNode *b = n->next;
+	if (a == NULL && b == NULL) {
+
+		n->free = 1;
+		
+	} else if (a == NULL && b != NULL) {
+		
+		n->free = 1;
+		if (b->free) {
+			n->size = b->size + sizeof(SpaceNode);
+			n->next = b->next;
+		}
+
+		
+	} else if (a != NULL && b == NULL) {
+		
+		if (a->free) {
+			a->size = n->size + sizeof(SpaceNode);
+			a->next = n->next;
+		} else
+			n->free = 1;
+		
+			
+	} else if (a != NULL && b != NULL) {
+		
+		if (!a->free && !b->free) {
+			
+			n->free = 1;
+			
+		} else if (!a->free && b->free) {
+			
+			n->size = b->size + sizeof(SpaceNode);
+			n->next = b->next;
+			
+		} else if (a->free && !b->free) {
+			
+			a->size = n->size + sizeof(SpaceNode);
+			a->next = n->next;
+			
+		} else if (a->free && b->free) {
+			
+			a->size = n->size + b->size + 2*sizeof(SpaceNode);
+			a->next = b->next;
+			
+		}
+	}
+			
+	return 0;
+}
+
 void mydeallocate(void* ptr, char *file, char *line, int request)
 {
 	switch (request) {
@@ -168,6 +226,7 @@ void mydeallocate(void* ptr, char *file, char *line, int request)
 			break;
 		default:
 			// deallocate a page
+			removePage(ptr);
 			printMemory(0);
 
 			
