@@ -6,6 +6,10 @@
 #define PAGE 0
 #define SEG 1
 
+#define MEMORY_START 1
+
+static char mem[PHYSICAL_SIZE] = "";
+
 typedef struct spaceNode {
 	unsigned pid;
 	unsigned free:1;
@@ -18,7 +22,7 @@ typedef struct spaceNode {
 
 SpaceNode *getFirstPage()
 {
-	return (SpaceNode *) &mem[0];
+	return (SpaceNode *) &mem[MEMORY_START];
 }
 
 SpaceNode *getNextSpace(SpaceNode *old)
@@ -203,9 +207,8 @@ void printMemory(size_t size)
 void *myallocate (size_t size, char *file, int line, int request)
 {
 
-	if (first == NULL) {
-		int a = 1;
-		first = &a;
+	if (mem[MEMORY_START - 1] == 0) {
+		mem[MEMORY_START - 1] = 1;
 
 		SpaceNode new;
 
@@ -215,7 +218,7 @@ void *myallocate (size_t size, char *file, int line, int request)
 		new.start = &mem[0] + sizeof(SpaceNode);
 		new.pid = 0;
 
-		memcpy(&mem[0], &new, sizeof(SpaceNode));
+		memcpy(&mem[MEMORY_START], &new, sizeof(SpaceNode));
 	}
 
 	void *ptr = NULL;

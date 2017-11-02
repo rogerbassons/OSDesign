@@ -9,7 +9,7 @@
 
 #define PHYSICAL_SIZE  8000000 //8MB
 static char mem[PHYSICAL_SIZE]; // physical memory
-int *first;
+
 
 /* 
 Allocate memory block
