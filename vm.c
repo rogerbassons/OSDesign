@@ -120,7 +120,7 @@ void *getFreePage(size_t size, unsigned pid)
 		}
 			
 		setProcessPage(n, pid);
-		return (void *)n->start;
+		return (void *)n;
 	}
 }
 
@@ -235,9 +235,14 @@ void *myallocate (size_t size, char *file, char *line, int request)
 	return ptr;
 }
 
-int removePage(void *ptr)
+int removeSpace(void *ptr, int type)
 {
-	SpaceNode *n = ptr - sizeof(SpaceNode);
+	SpaceNode *n;
+
+	if (type == PAGE)
+		n = (SpaceNode *) ptr;
+	else
+		n = ptr - sizeof(SpaceNode);
 
 	if (n->free)
 		return 0;
@@ -298,11 +303,11 @@ void mydeallocate(void* ptr, char *file, char *line, int request)
 	switch (request) {
 		case THREADREQ:
 			// deallocate
-
+			removeSpace(ptr, SEG);
 			break;
 		default:
 			// deallocate a page
-			removePage(ptr);
+			removeSpace(ptr, PAGE);
 			printf("\nDeallocating page...\n\n");
 			printMemory(0);
 
