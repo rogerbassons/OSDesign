@@ -7,7 +7,7 @@
 
 #define THREADREQ 0
 
-#define PHYSICAL_SIZE 100 //8000000 //8MB
+#define PHYSICAL_SIZE  8000000 //8MB
 static char mem[PHYSICAL_SIZE]; // physical memory
 int *first;
 

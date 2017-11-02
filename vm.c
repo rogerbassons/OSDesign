@@ -3,6 +3,9 @@
 #include "my_pthread_t.h"
 #include <string.h>
 
+#define PAGE 0
+#define SEG 1
+
 typedef struct spaceNode {
 	unsigned pid;
 	unsigned free:1;
@@ -13,20 +16,28 @@ typedef struct spaceNode {
 } SpaceNode;
 
 
-SpaceNode *getNextSpace(SpaceNode *old)
+SpaceNode *getFirstPage()
 {
-	SpaceNode *n = NULL;
-	if (old == NULL)
-		n = (SpaceNode *) &mem[0];
-	else
-		n = old->next;
-
-	return n;
+	return (SpaceNode *) &mem[0];
 }
 
-SpaceNode *findFreeSpace(size_t size)
+SpaceNode *getNextSpace(SpaceNode *old)
 {
-	SpaceNode *n = getNextSpace(NULL);
+	if (old == NULL)
+		return NULL;
+	else
+		return (SpaceNode *) old->next;
+}
+
+SpaceNode *findFreeSpace(SpaceNode *start, size_t size)
+{
+	SpaceNode *n;
+
+	if (start == NULL) {
+		n = getFirstPage();
+	} else {
+		n = start;
+	}
 
 	while (n != NULL && !(n->free) && n->size < size)
 		n = getNextSpace(n);
@@ -39,7 +50,22 @@ SpaceNode *findFreeSpace(size_t size)
 	
 }
 
-int createSpace(SpaceNode *n, size_t size)
+int initializeSpace(SpaceNode *n)
+{
+
+	
+	SpaceNode new;
+
+	new.free = 1;
+	new.next = new.prev = NULL;
+	new.size = n->size - sizeof(SpaceNode);
+	new.start = n->start + sizeof(SpaceNode);
+	new.pid = 0;
+
+	memcpy(n->start, &new, sizeof(SpaceNode));
+}
+
+int createSpace(SpaceNode *n, size_t size, int type)
 {
 	SpaceNode *b = n->next;
 	SpaceNode new;
@@ -66,6 +92,10 @@ int createSpace(SpaceNode *n, size_t size)
 		    
 
 		n->free = 0;
+
+		if (type == PAGE)
+			initializeSpace(n); // create a free node inside the page
+			
 		return 0;
 	}	
 }
@@ -78,13 +108,13 @@ void setProcessPage(SpaceNode *n, int pid)
 
 void *getFreePage(size_t size, unsigned pid)
 {
-	SpaceNode *n = findFreeSpace(size);
+	SpaceNode *n = findFreeSpace(NULL, size);
 	
 	if (n == NULL) {
 		return NULL;
 	} else {
 		
-		if (createSpace(n, size)) {
+		if (createSpace(n, size, PAGE)) {
 			perror("Error creating space");
 			return NULL;
 		}
@@ -92,12 +122,11 @@ void *getFreePage(size_t size, unsigned pid)
 		setProcessPage(n, pid);
 		return (void *)n->start;
 	}
-	return (void *)n->start;
 }
 
 SpaceNode *findProcessPage(unsigned pid)
 {
-	SpaceNode *n = getNextSpace(NULL);
+	SpaceNode *n = getFirstPage();
 	
 	while (n != NULL && n->pid != pid)
 		n = getNextSpace(n);
@@ -113,14 +142,29 @@ void *getFreeThread(size_t size)
 	//unsigned pid = (*running)->id;
 	unsigned pid = 1;
 
-	SpaceNode * n = findProcessPage(pid);
-	//TODO
-	return NULL;
+	SpaceNode * p = findProcessPage(pid);
+	if (p == NULL) {
+		perror("Cannot find process page");
+		return NULL;
+	}
+	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
+	
+	if (n == NULL) {
+		return NULL;
+	} else {
+		
+		if (createSpace(n, size, SEG)) {
+			perror("Error creating space");
+			return NULL;
+		}
+			
+		return (void *)n->start;
+	}
 }
 
 void printMemory(size_t size)
 {
-	SpaceNode *n = getNextSpace(NULL);
+	SpaceNode *n = getFirstPage();
 
 	int i = 1;
 	while (n != NULL) {
@@ -133,17 +177,21 @@ void printMemory(size_t size)
 		printf("Size: %i\n", n->size);
 		if (!n->free) {
 			printf("Contents:\n");
-			int j = 0;
-			printf("| ");
-			while (j < n->size) {
-				char *ptr = (n->start + j);
-				if (*ptr != 0)
-					printf("%i | ", *ptr);
-				else
-					printf("NULL | ");
-				
-				j++;
+
+			SpaceNode *s = (SpaceNode *) n->start;
+			int j = 1;
+			while (s != NULL) {
+				if (n->free)
+					printf("----- Free Space -----\n");
+				else {
+					printf("----- Segment %i -----\n", j);
+					j++;
+				}
+				printf("Size: %i\n", n->size);
+				s = getNextSpace(s);
 			}
+		     
+			
 			printf("\n");
 		}
 		n = getNextSpace(n);	
