@@ -42,11 +42,8 @@ SpaceNode *findFreeSpace(SpaceNode *start, size_t size)
 	while (n != NULL && !(n->free) && n->size < size)
 		n = getNextSpace(n);
 
-	if (n == NULL)
-		return NULL;
-	else if (n->free && n->size > size)
-		return n;
 
+	return n;
 	
 }
 
@@ -63,6 +60,8 @@ int initializeSpace(SpaceNode *n)
 	new.pid = 0;
 
 	memcpy(n->start, &new, sizeof(SpaceNode));
+
+	return 0;
 }
 
 int createSpace(SpaceNode *n, size_t size, int type)
@@ -201,7 +200,7 @@ void printMemory(size_t size)
 
 }
 
-void *myallocate (size_t size, char *file, char *line, int request)
+void *myallocate (size_t size, char *file, int line, int request)
 {
 
 	if (first == NULL) {
@@ -298,7 +297,7 @@ int removeSpace(void *ptr, int type)
 	return 0;
 }
 
-void mydeallocate(void* ptr, char *file, char *line, int request)
+void mydeallocate(void* ptr, char *file, int line, int request)
 {
 	switch (request) {
 		case THREADREQ:

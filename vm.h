@@ -21,7 +21,7 @@ with indeterminate values.
 
 If size is zero, returns a null pointer.
 */
-void* myallocate (size_t size, char *file, char *line, int request);
+void* myallocate (size_t size, char *file, int line, int request);
 
 /* 
 Deallocate memory block
@@ -36,7 +36,7 @@ If ptr is a null pointer, the function does nothing.
 Notice that this function does not change the value of ptr itself, hence it
 still points to the same (now invalid) location. 
 */ 
-void mydeallocate(void* ptr, char *file, char *line, int request);
+void mydeallocate(void* ptr, char *file, int line, int request);
 
 
 
