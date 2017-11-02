@@ -78,7 +78,7 @@ int createSpace(SpaceNode *n, size_t size, int type)
 	new.pid = 0;
 
 	if (n->size < size)
-		return 1;
+		return 1; // not enough space
 	else {
 		int restSize = n->size - size;
 		if (restSize > sizeof(SpaceNode)) {
@@ -165,10 +165,10 @@ void *getFreeThread(size_t size)
 	}
 }
 
-void printMemory(size_t size)
+void printMemory()
 {
 	SpaceNode *n = getFirstPage();
-
+	printf("\n\nMemory: \n----------------------------------\n");
 	int i = 1;
 	while (n != NULL) {
 		if (n->free)
@@ -179,18 +179,18 @@ void printMemory(size_t size)
 		}
 		printf("Size: %i\n", n->size);
 		if (!n->free) {
-			printf("Contents:\n");
+			printf("      Contents:\n");
 
 			SpaceNode *s = (SpaceNode *) n->start;
 			int j = 1;
 			while (s != NULL) {
-				if (n->free)
-					printf("----- Free Space -----\n");
+				if (s->free)
+					printf("      ----- Free Space -----\n");
 				else {
-					printf("----- Segment %i -----\n", j);
+					printf("      ----- Segment %i -----\n", j);
 					j++;
 				}
-				printf("Size: %i\n", n->size);
+				printf("      Size: %i\n", s->size);
 				s = getNextSpace(s);
 			}
 		     
@@ -201,6 +201,7 @@ void printMemory(size_t size)
 
 
 	}
+	printf("----------------------------------\n\n\n");
 
 }
 
@@ -230,9 +231,6 @@ void *myallocate (size_t size, char *file, int line, int request)
 		default:
 			// reserve a page
 			ptr = getFreePage(size, request);
-			printf("\nAllocating page...\n\n");
-			printMemory(size);
-
 	}
 	return ptr;
 }
@@ -310,8 +308,6 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 		default:
 			// deallocate a page
 			removeSpace(ptr, PAGE);
-			printf("\nDeallocating page...\n\n");
-			printMemory(0);
 
 			
 	}

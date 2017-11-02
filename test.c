@@ -2,16 +2,30 @@
 
 int main()
 {
-	char *a = myallocate(4000, NULL, 0, 1);
-	int *n = (int *) malloc(sizeof(int));
+	char *n = myallocate(4000, NULL, 0, 1);
 
-	*n = 1234;
+	printMemory();
 
-	printf("Number: %i", *n);
+	int *a = (int *) malloc(sizeof(int));
+	*a = 1234;
+	printf("Number 1: %i\n", *a);
 
+	printMemory();
+
+	int *b = (int *) malloc(sizeof(int));
+	*b = 1;
+	printf("Number 2: %i\n", *b);
+
+	printMemory();
+
+	free(b);
+	free(a);
+
+	printMemory();
 	
-	free(n);
-	mydeallocate(a, NULL, 0, 1);
+	mydeallocate(n, NULL, 0, 1);
+
+	printMemory();
 	return 0;
 
 }

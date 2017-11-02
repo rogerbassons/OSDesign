@@ -38,7 +38,7 @@ still points to the same (now invalid) location.
 */ 
 void mydeallocate(void* ptr, char *file, int line, int request);
 
-
+void printMemory();
 
 
 #ifdef THREADREQ
