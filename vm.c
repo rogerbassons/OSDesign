@@ -12,7 +12,7 @@ static char mem[PHYSICAL_SIZE] = "";
 
 typedef struct spaceNode {
 	unsigned pid;
-	unsigned free:1;
+	unsigned free;
 	char *start;
 	unsigned size;
 	struct spaceNode *next;
@@ -33,19 +33,14 @@ SpaceNode *getNextSpace(SpaceNode *old)
 		return (SpaceNode *) old->next;
 }
 
-SpaceNode *findFreeSpace(SpaceNode *start, size_t size)
+SpaceNode *findFreeSpace(SpaceNode *n, size_t size)
 {
-	SpaceNode *n;
-
-	if (start == NULL) {
-		n = getFirstPage();
-	} else {
-		n = start;
-	}
-
-	while (n != NULL && !(n->free) && n->size < size)
+	while (n != NULL && !(n->free)) 
 		n = getNextSpace(n);
 
+	if (n != NULL && n->free && n->size < size)
+		n = getNextSpace(n);
+		
 
 	return n;
 	
@@ -70,37 +65,35 @@ int initializeSpace(SpaceNode *n)
 
 int createSpace(SpaceNode *n, size_t size, int type)
 {
-	SpaceNode *b = n->next;
-	SpaceNode new;
-	new.free = 1;
-	new.prev = (SpaceNode *)&n;
-	new.next = b;
-	new.pid = 0;
+	if (!n->free || n->size < size)
+		return 1;
+	
+	int restSize = n->size - size;
+	if (restSize > sizeof(SpaceNode)) {
 
-	if (n->size < size)
-		return 1; // not enough space
-	else {
-		int restSize = n->size - size;
-		if (restSize > sizeof(SpaceNode)) {
-			n->size = size;
-			new.size = restSize;
+		SpaceNode new;
+		new.free = 1;
+		new.prev = n;
+		new.next = n->next;
+		new.pid = 0;
+		new.size = restSize;
 
-			void *pos = n->start + size;
-			new.start = pos + sizeof(SpaceNode);
-
-			n->next = (SpaceNode *) pos;
-			memcpy(pos, &new, sizeof(SpaceNode));
-
-		} 
+		char *newPos = n->start + size;
+		new.start = newPos + sizeof(SpaceNode);
+		
+		memcpy(newPos, &new, sizeof(SpaceNode));
+		
+		n->size = size;
+		n->next = (SpaceNode *) newPos;
+	} 
 		    
 
-		n->free = 0;
+	n->free = 0;
 
-		if (type == PAGE)
-			initializeSpace(n); // create a free node inside the page
+	if (type == PAGE)
+		initializeSpace(n); // create a free node inside the page
 			
-		return 0;
-	}	
+	return 0;
 }
 
 
@@ -111,14 +104,14 @@ void setProcessPage(SpaceNode *n, int pid)
 
 void *getFreePage(size_t size, unsigned pid)
 {
-	SpaceNode *n = findFreeSpace(NULL, size);
+	SpaceNode *n = findFreeSpace(getFirstPage(), size);
 	
 	if (n == NULL) {
+		fprintf(stderr, "Error no free pages for process %i\n", pid);
 		return NULL;
 	} else {
-		
 		if (createSpace(n, size, PAGE)) {
-			perror("Error creating space");
+			fprintf(stderr, "Error creating space for process %i\n", pid);
 			return NULL;
 		}
 			
@@ -131,10 +124,11 @@ SpaceNode *findProcessPage(unsigned pid)
 {
 	SpaceNode *n = getFirstPage();
 	
-	while (n != NULL && n->pid != pid)
+	while (n != NULL && n->pid != pid) {
 		n = getNextSpace(n);
+	}
 
-	if (n->pid == pid)
+	if (n != NULL && n->pid == pid)
 		return n;
 	else
 		return NULL;
@@ -215,7 +209,7 @@ void *myallocate (size_t size, char *file, int line, int request)
 
 		new.free = 1;
 		new.next = new.prev = NULL;
-		new.size = PHYSICAL_SIZE - sizeof(SpaceNode);
+		new.size = PHYSICAL_SIZE - MEMORY_START - sizeof(SpaceNode);
 		new.start = &mem[0] + sizeof(SpaceNode);
 		new.pid = 0;
 

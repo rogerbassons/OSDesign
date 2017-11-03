@@ -2,7 +2,8 @@
 
 int main()
 {
-	char *n = myallocate(4000, NULL, 0, 1);
+	char *n1 = myallocate(4000, NULL, 0, 1);
+	char *n2 = myallocate(4000, NULL, 0, 2);
 
 	printMemory();
 
@@ -23,7 +24,8 @@ int main()
 
 	printMemory();
 	
-	mydeallocate(n, NULL, 0, 1);
+	mydeallocate(n1, NULL, 0, 1);
+	mydeallocate(n2, NULL, 0, 1);
 
 	printMemory();
 	return 0;
