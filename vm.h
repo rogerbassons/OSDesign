@@ -6,8 +6,12 @@
 #define _GNU_SOURCE
 
 #define THREADREQ 0
+#define OSREQ -1
+#define SWAPREQ -2
+
 
 #define PHYSICAL_SIZE  8000000 //8MB
+#define MEMORY_START   2000000 // first 2MB are OS-reserved
 static char mem[PHYSICAL_SIZE]; // physical memory
 
 

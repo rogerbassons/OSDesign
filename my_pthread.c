@@ -1,6 +1,7 @@
 #include "my_pthread_t.h"
 #include <signal.h>
 #include <time.h>
+#include "vm.h"
 
 void threadExit(void *res)
 {
@@ -97,9 +98,9 @@ int setMyScheduler()
 
 int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg)
 {
-	sthread *t = (sthread *) malloc(sizeof(sthread));
+	sthread *t = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, -1);
 	*thread = t;
-	t->waitJoin = (LinkedList *) malloc(sizeof(LinkedList));
+	t->waitJoin = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, -1);
 
 	t->id = nextId;
 	nextId++;
@@ -115,7 +116,7 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 
 		sigemptyset(&(t->context.uc_sigmask));
 
-		char *stack = (char *)malloc(STACK_SIZE);
+		char *stack = (char *)myallocate(STACK_SIZE, "my_pthread.c", 0, -1);
 		t->context.uc_stack.ss_sp = stack;
 		t->context.uc_stack.ss_size = STACK_SIZE;
 		t->context.uc_stack.ss_flags = 0;
@@ -131,14 +132,14 @@ int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 {
 
 	if (run == NULL) {
-		run = (LinkedList *) malloc(sizeof(LinkedList));
-		mainThread = (sthread *) malloc(sizeof(sthread));
-		running = (my_pthread_t *) malloc(sizeof(my_pthread_t));
+		run = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, -1);
+		mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, -1);
+		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, -1);
 
 		nextId = 2;
-		mainThread.id = 1;
-		mainThread.priority = 0;
-		mainThread.born = (unsigned long)time(NULL);
+		mainThread->id = 1;
+		mainThread->priority = 0;
+		mainThread->born = (unsigned long)time(NULL);
 		nSchedulings = 0;
 		*running = mainThread;
 		setMyScheduler();
@@ -208,10 +209,10 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 int my_pthread_mutex_init(my_pthread_mutex_t * mutex,
 		const pthread_mutexattr_t * mutexattr)
 {
-	lock *l = (lock *) malloc(sizeof(lock));
+	lock *l = (lock *) myallocate(sizeof(lock), "my_pthread.c", 0, -1);
 	(*mutex) = l;
 	l->state = 0;
-	l->wait = (LinkedList *) malloc(sizeof(LinkedList));
+	l->wait = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, -1);
 }
 
 int testAndSet(my_pthread_mutex_t * m)

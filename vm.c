@@ -4,9 +4,9 @@
 #include <string.h>
 
 #define PAGE 0
-#define SEG 1
+#define ELEMENT 1
 
-#define MEMORY_START 1
+
 
 static char mem[PHYSICAL_SIZE] = "";
 
@@ -134,7 +134,24 @@ SpaceNode *findProcessPage(unsigned pid)
 		return NULL;
 }
 
-void *getFreeThread(size_t size)
+void *getFreeOSElement(size_t size)
+{
+	SpaceNode *n = findFreeSpace((SpaceNode *)(&mem[1]), size);
+
+	if (n == NULL) {
+		return NULL;
+	} else {
+		
+		if (createSpace(n, size, ELEMENT)) {
+			perror("Error creating OS space");
+			return NULL;
+		}
+			
+		return (void *)n->start;
+	}
+}
+
+void *getFreeElement(size_t size)
 {
 	//unsigned pid = (*running)->id;
 	unsigned pid = 1;
@@ -150,7 +167,7 @@ void *getFreeThread(size_t size)
 		return NULL;
 	} else {
 		
-		if (createSpace(n, size, SEG)) {
+		if (createSpace(n, size, ELEMENT)) {
 			perror("Error creating space");
 			return NULL;
 		}
@@ -159,10 +176,32 @@ void *getFreeThread(size_t size)
 	}
 }
 
+void printOSMemory()
+{
+	printf("\n\nOS Memory: \n----------------------------------\n");
+	SpaceNode *n = (SpaceNode *) &mem[1];
+	int i = 1;
+	while (n != NULL) {
+		if (n->free)
+			printf("----- Free Space -----\n");
+		else {
+			printf("----- OS Element %i -----\n", i);
+			i++;
+		}
+		printf("Size: %i\n", n->size);
+		
+		n = getNextSpace(n);	
+
+
+	}
+	printf("----------------------------------\n");
+}
+
 void printMemory()
 {
+	printOSMemory();
 	SpaceNode *n = getFirstPage();
-	printf("\n\nMemory: \n----------------------------------\n");
+	printf("Memory: \n----------------------------------\n");
 	int i = 1;
 	while (n != NULL) {
 		if (n->free)
@@ -181,7 +220,7 @@ void printMemory()
 				if (s->free)
 					printf("      ----- Free Space -----\n");
 				else {
-					printf("      ----- Segment %i -----\n", j);
+					printf("      ----- Element %i -----\n", j);
 					j++;
 				}
 				printf("      Size: %i\n", s->size);
@@ -202,15 +241,28 @@ void printMemory()
 void *myallocate (size_t size, char *file, int line, int request)
 {
 
-	if (mem[MEMORY_START - 1] == 0) {
-		mem[MEMORY_START - 1] = 1;
+	if (mem[0] == 0) { //first run
+		mem[0] = 1;
 
+
+		// System reserved space
 		SpaceNode new;
+		new.free = 1;
+		new.next = new.prev = NULL;
+		new.size = MEMORY_START - sizeof(SpaceNode) - 1;
+		new.start = &mem[1] + sizeof(SpaceNode);
+		new.pid = 0;
 
+		memcpy(&mem[1], &new, sizeof(SpaceNode));
+
+
+
+		// Free space for pages
+		
 		new.free = 1;
 		new.next = new.prev = NULL;
 		new.size = PHYSICAL_SIZE - MEMORY_START - sizeof(SpaceNode);
-		new.start = &mem[0] + sizeof(SpaceNode);
+		new.start = &mem[MEMORY_START] + sizeof(SpaceNode);
 		new.pid = 0;
 
 		memcpy(&mem[MEMORY_START], &new, sizeof(SpaceNode));
@@ -220,9 +272,13 @@ void *myallocate (size_t size, char *file, int line, int request)
 	switch (request) {
 		case THREADREQ:
 			// allocate
-			ptr = getFreeThread(size);
+			ptr = getFreeElement(size);
 			break;
-		default:
+	        case OSREQ:
+			// allocate memory to OS data
+			ptr = getFreeOSElement(size);
+			break;
+	        default:
 			// reserve a page
 			ptr = getFreePage(size, request);
 	}
@@ -297,7 +353,7 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	switch (request) {
 		case THREADREQ:
 			// deallocate
-			removeSpace(ptr, SEG);
+			removeSpace(ptr, ELEMENT);
 			break;
 		default:
 			// deallocate a page
