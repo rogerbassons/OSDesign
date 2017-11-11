@@ -2,7 +2,7 @@
 #define MY_VM_H
 
 #include <stdio.h>
-
+#include <signal.h>
 #define _GNU_SOURCE
 
 #define THREADREQ 0
@@ -13,7 +13,7 @@
 #define PHYSICAL_SIZE  8000000 //8MB
 #define MEMORY_START   2000000 // first 2MB are OS-reserved
 static char mem[PHYSICAL_SIZE]; // physical memory
-
+struct sigaction saSeg;
 
 /* 
 Allocate memory block
@@ -43,6 +43,8 @@ still points to the same (now invalid) location.
 void mydeallocate(void* ptr, char *file, int line, int request);
 
 void printMemory();
+
+void memfun(int sig, siginfo_t *si, void *unused);
 
 
 #ifdef THREADREQ

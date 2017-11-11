@@ -2,19 +2,25 @@
 #include "vm.h"
 #include "my_pthread_t.h"
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #define PAGE 0
 #define ELEMENT 1
-
+#define MAX_NUM_THREADS 100
 
 
 static char mem[PHYSICAL_SIZE] = "";
+int inMemFun = 0;
+int PAGE_SIZE;
+int threadOrders[MAX_NUM_THREADS];
 
 typedef struct spaceNode {
 	unsigned pid;
 	unsigned free;
 	char *start;
 	unsigned size;
+        int order;
 	struct spaceNode *next;
 	struct spaceNode *prev;
 } SpaceNode;
@@ -238,12 +244,31 @@ void printMemory()
 
 }
 
+void *translatePtr(void * ptr){
+  SpaceNode * snptr = ((SpaceNode *)ptr) - 1;
+  snptr->order = threadOrders[snptr->pid];
+  threadOrders[snptr->pid] += (snptr->size / PAGE_SIZE) + 1;
+  void * virloc = (void *) (&mem[MEMORY_START] + (PAGE_SIZE * snptr->order) + sizeof(SpaceNode));
+  return virloc;
+}
+
 void *myallocate (size_t size, char *file, int line, int request)
 {
 
 	if (mem[0] == 0) { //first run
 		mem[0] = 1;
 
+		//SOME OTHER INIT STUFF I NEED TO DO:
+		PAGE_SIZE = sysconf(_SC_PAGE_SIZE);
+		int i;
+		for(i = 0; i < MAX_NUM_THREADS; i++){
+		  threadOrders[i] = 0;
+		}
+
+		//saSeg.sa_flags = SA_SIGINFO;
+		//sigemptyset(&saSeg.sa_mask);
+		//saSeg.sa_sigaction = memfun;
+		//sigaction(SIGSEGV, &saSeg, NULL);
 
 		// System reserved space
 		SpaceNode new;
@@ -273,10 +298,15 @@ void *myallocate (size_t size, char *file, int line, int request)
 		case THREADREQ:
 			// allocate
 			ptr = getFreeElement(size);
+			//ptr = translatePtr(ptr);
 			break;
 	        case OSREQ:
 			// allocate memory to OS data
 			ptr = getFreeOSElement(size);
+			break;
+	        case SWAPREQ:
+		        //basically, allocate without doing a memprotect or pointer translation.
+		        ptr = getFreeElement(size);
 			break;
 	        default:
 			// reserve a page
@@ -363,5 +393,152 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	}
 }
 
+int getPageSize(SpaceNode * ptr){
+  //In case size doesn't have what I expect I can calculate the size I want later. For now I hope it's good.
+  return ptr->size;
 
+}
+
+void memfun(int sig, siginfo_t *si, void *unused){
+  //First, let's prevent any interrupts from being made.
+  sigset_t oldmask;
+  sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+
+  //check to make sure that memfun itself didn't raise a seg fault.
+  if(inMemFun == 1){
+    perror("memfun caused a segfault\n");
+    exit(1);
+  }
+  inMemFun = 1;
+
+  //Now check to make sure that the addr is actually within mem
+  if(&mem[MEMORY_START] > si->si_addr || &mem[sizeof(mem) - 1] < si->si_addr){
+    perror("Actual segmentation fault. Addr is outside of valid mem area.");
+    exit(1);
+  }
+
+  //un-mprotect all the memory so we can mess with stuff. I'm not sure about the runtime of this so it may run slow, but it's easy to understand.
+  mprotect(&mem[MEMORY_START], (&mem[sizeof(mem) - 1]), PROT_READ | PROT_WRITE);
+
+  //Next, let's find out what page needs to be loaded.
+  if(running == NULL){
+    perror("running was null.\n");
+    exit(1);
+  }
+  int currid = (*running)->id;
+  if(mem[0] == 0){
+    perror("Memory not initialized.\n");
+    exit(1);
+  }
+  SpaceNode * pageptr = ((SpaceNode *)&mem[MEMORY_START]); //initializing a ptr to the beginning of mem
+  int pgid = (int)(((char *)si->si_addr) - &mem[MEMORY_START]); //number of bytes from the beginning of mem
+  pgid = pgid / PAGE_SIZE; //pgid now holds the inex of the expected page that user asked for.
+  while(pageptr != NULL){
+    if(pageptr->free == 0 && pageptr->pid == currid){
+      if(pageptr->order <= pgid && pageptr->order + (getPageSize(pageptr) / PAGE_SIZE) >= pgid){
+	printf("Found needed page.\n");
+	break;
+      }
+    }
+    pageptr = pageptr->next;
+  } 
+  //Now, let's move whatever is at the addresses of mem that pageptr needs to be at.
+
+  SpaceNode * snptr = ((SpaceNode *)&mem[MEMORY_START]); //initializing another ptr
+  SpaceNode * snprev;
+  int pg = 0;
+  while(pg <= pgid && snptr != NULL){
+    pg += (getPageSize(snptr) / PAGE_SIZE) + 1;
+    snprev = snptr;
+    snptr = snptr->next;
+  }
+  int pagesneeded = (getPageSize(pageptr) / PAGE_SIZE) + 1;
+  //if(snprev->free == 1){ //The page wants to be in free memory of unknown size.
+  int snprev_pg_index = (int) ((((char *)snprev) - &mem[MEMORY_START])) / PAGE_SIZE;
+  pagesneeded -= (pgid - snprev_pg_index) + 1;
+  if(pagesneeded > 0 && snprev->next == NULL){
+    printf("need more pages but we're at the end of mem...\n");
+  }
+  if(snprev->free == 0){
+    SpaceNode * temp = (SpaceNode *)myallocate(getPageSize(snprev), __FILE__, __LINE__, -2);
+    if(temp == NULL){
+      perror("Couldn't find enough space to swapp.\n");
+      exit(1);
+    }
+    memcpy(temp, snprev->start, snprev->size);
+    temp--;
+    temp->pid = snprev->pid;
+    mydeallocate(snprev->start, __FILE__, __LINE__, -2);
+  }
+  //}
+  while(pagesneeded > 0){ //start moving stuff stuff starting at snptr
+    pagesneeded -= (getPageSize(snptr) / PAGE_SIZE) + 1;
+    if(snptr->free == 1){
+      snptr = snptr->next;
+    }
+    else {
+      SpaceNode * temp = (SpaceNode *)myallocate(getPageSize(snptr), __FILE__, __LINE__, -2);
+      if(temp == NULL){
+	perror("Couldn't find enough space to swap.\n");
+	exit(1);
+      }
+      memcpy(temp, snprev->start,snprev->size);
+      temp--;
+      temp->pid = snptr->pid;
+      temp = snptr;
+      snptr = snptr->next;
+      mydeallocate(temp->start, __FILE__, __LINE__, -2);
+    }
+    if(snptr == NULL && pagesneeded > 0){ //change for swap file functionality!
+      perror("Not enough room to shift stuff around.\n");
+      exit(1);
+    }
+  }
+
+  //Now we need to get the address where we'll be plopping the node down.
+  SpaceNode * newloc = (SpaceNode *) (((int)&mem[MEMORY_START]) + (PAGE_SIZE * pgid));
+
+  if (pagesneeded < 0){ //This means that the last page we removed was larger than we needed space for. Now we need to add in free space pagenode.
+    printf("Running freeloc stuff.\n");
+    SpaceNode * freeloc = (SpaceNode *) (((int)newloc) + sizeof(SpaceNode) + getPageSize(newloc));
+    freeloc->start = freeloc + 1;
+    if(snptr == NULL){
+      freeloc->size = (PHYSICAL_SIZE + &mem[MEMORY_START]) - ((int)freeloc->start);
+    } else {
+      freeloc->size = ((int)snptr) - ((int)freeloc->start);
+    }
+    freeloc->free = 1;
+    freeloc->next = snptr;
+    freeloc->prev = newloc;
+    newloc->next = freeloc;
+  }
+
+  //Will we be putting down memory in an arbitrary region of free space? possibly.
+  if(newloc == snprev){
+    //Great, where we want to put the page already lines up with the beginning of some free space.
+  } else {
+    //We need to do some pointer gynmnastics first.
+    snprev->next = newloc;
+    snprev->size = ((int)newloc) - ((int)snprev->start);
+    newloc->prev = snprev;
+  }
+  memcpy((newloc + 1), (pageptr + 1), pageptr->size);
+  newloc->pid = pageptr->pid;
+  if(pagesneeded == 0){  //otherwise, newloc's next is already sorted out in a previous section
+    newloc->next = snptr;
+    if(snptr!= NULL){
+      snptr->prev = newloc;
+    }
+  }
+
+  mprotect(&mem[MEMORY_START],(int)(((char *)newloc) - &mem[MEMORY_START]), PROT_NONE);
+  if(newloc->next != NULL){
+    mprotect(newloc->next,(&mem[sizeof(mem) - 1]) - (int)newloc->next, PROT_READ | PROT_WRITE);
+  }
+  inMemFun = 1;
+  //Still need to do memprotects and translation of addr.
+
+  //Lastly, re-enable interrupts.
+  sigprocmask(SIG_SETMASK, &oldmask, NULL);
+}
 

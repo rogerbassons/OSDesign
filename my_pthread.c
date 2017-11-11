@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <time.h>
 #include "vm.h"
+#include <sys/mman.h>
 
 void threadExit(void *res)
 {
@@ -51,7 +52,7 @@ void scheduler()
 	}
 
 	(*running)->priority += 1;
-
+	//mprotect(&mem[MEMORY_START], (&mem[sizeof(mem) - 1]), PROT_NONE);
 	if (!empty(run)) {
 
 		my_pthread_t *nextThread = pop(run);
