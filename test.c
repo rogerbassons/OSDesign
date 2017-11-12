@@ -2,6 +2,7 @@
 
 int main()
 {
+	
 	char *n1 = myallocate(4000, NULL, 0, 1);
 	char *n2 = myallocate(4000, NULL, 0, 2);
 

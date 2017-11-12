@@ -11,9 +11,9 @@
 
 
 #define PHYSICAL_SIZE  8000000 //8MB
+#define SWAP_SIZE 16000000 // 16MB
 #define MEMORY_START   2000000 // first 2MB are OS-reserved
 static char mem[PHYSICAL_SIZE]; // physical memory
-
 
 /* 
 Allocate memory block
@@ -42,7 +42,9 @@ still points to the same (now invalid) location.
 */ 
 void mydeallocate(void* ptr, char *file, int line, int request);
 
+void printOSMemory();
 void printMemory();
+void printSwap();
 
 
 #ifdef THREADREQ

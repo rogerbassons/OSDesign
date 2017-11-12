@@ -8,7 +8,7 @@
 
 
 
-static char mem[PHYSICAL_SIZE] = "";
+FILE *f = NULL;
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -96,10 +96,158 @@ int createSpace(SpaceNode *n, size_t size, int type)
 	return 0;
 }
 
+int removeSpace(void *ptr, int type)
+{
+	SpaceNode *n;
+
+	if (type == PAGE)
+		n = (SpaceNode *) ptr;
+	else
+		n = ptr - sizeof(SpaceNode);
+
+	if (n->free)
+		return 0;
+
+	SpaceNode *a = n->prev;
+	SpaceNode *b = n->next;
+	if (a == NULL && b == NULL) {
+
+		n->free = 1;
+		
+	} else if (a == NULL && b != NULL) {
+		
+		n->free = 1;
+		if (b->free) {
+			n->size = b->size + sizeof(SpaceNode);
+			n->next = b->next;
+		}
+
+		
+	} else if (a != NULL && b == NULL) {
+		
+		if (a->free) {
+			a->size = n->size + sizeof(SpaceNode);
+			a->next = n->next;
+		} else
+			n->free = 1;
+		
+			
+	} else if (a != NULL && b != NULL) {
+		
+		if (!a->free && !b->free) {
+			
+			n->free = 1;
+			
+		} else if (!a->free && b->free) {
+			
+			n->size = b->size + sizeof(SpaceNode);
+			n->next = b->next;
+			
+		} else if (a->free && !b->free) {
+			
+			a->size = n->size + sizeof(SpaceNode);
+			a->next = n->next;
+			
+		} else if (a->free && b->free) {
+			
+			a->size = n->size + b->size + 2*sizeof(SpaceNode);
+			a->next = b->next;
+			
+		}
+	}
+			
+	return 0;
+}
+
 
 void setProcessPage(SpaceNode *n, int pid)
 {
 	n->pid = pid;
+}
+
+void restorePointers(SpaceNode *n, size_t size)
+{
+
+	size_t s = 0;
+	SpaceNode *old = NULL;
+	while (s < size) {
+		size_t offset = sizeof(SpaceNode) + n->size;
+
+		SpaceNode *next = n + offset;
+		n->next = next;
+		n->prev = old;
+
+		n = next;
+		s += offset;
+	}
+}
+
+char *getSwap()
+{
+	// Create/Open Swap file
+	FILE *f = fopen("swap", "r+b");
+	if (f == NULL) {
+		perror("Error creating swap file");
+		return NULL;
+	}
+
+	static char swap[SWAP_SIZE];
+
+	if (fread(swap, sizeof(swap), 1, f) != 1) {
+		fprintf(stderr, "Error: Failed to read swap file\n");
+		return NULL;
+	}
+	restorePointers((SpaceNode *) &swap[0], SWAP_SIZE);
+	fclose(f);
+	return swap;
+	
+}
+
+int writeSwap(char *swap)
+{
+	// Create/Open Swap file
+	FILE *f = fopen("swap", "w+b");
+	if (f == NULL) {
+		perror("Error creating/opening swap file");
+		return 1;
+	}
+		
+
+	if (fwrite(swap, SWAP_SIZE, 1, f) != 1) {// write swap array
+		printf("Error writing to swap file");
+		return 1;
+	}
+
+	return fclose(f);
+}
+
+
+int movePageToSwap()
+{
+
+	SpaceNode *lru = getFirstPage();//TODO findLRUPage(getFirstPage());
+
+	// READ SWAP FILE	
+	char *swap = getSwap();
+
+
+	// Find free swap page
+	SpaceNode *freeSwapPage = findFreeSpace((SpaceNode *)&swap[0], lru->size);
+	if (freeSwapPage == NULL) {
+		fprintf(stderr, "Error: No free pages\n");
+		return 1;
+	}
+
+	lru->next = freeSwapPage->next;
+	lru->prev = freeSwapPage->prev;
+
+	memcpy(freeSwapPage, &lru, sizeof(SpaceNode) + lru->size);
+	writeSwap(swap);
+
+	// free memory LRU page
+	removeSpace(lru, PAGE);
+
+	return 0;
 }
 
 void *getFreePage(size_t size, unsigned pid)
@@ -107,8 +255,13 @@ void *getFreePage(size_t size, unsigned pid)
 	SpaceNode *n = findFreeSpace(getFirstPage(), size);
 	
 	if (n == NULL) {
-		fprintf(stderr, "Error no free pages for process %i\n", pid);
-		return NULL;
+		
+		if (movePageToSwap()) {
+			return NULL;
+		} else {
+			return getFreePage(size, pid);
+		}
+
 	} else {
 		if (createSpace(n, size, PAGE)) {
 			fprintf(stderr, "Error creating space for process %i\n", pid);
@@ -197,11 +350,18 @@ void printOSMemory()
 	printf("----------------------------------\n");
 }
 
-void printMemory()
+int printData(int type)
 {
-	printOSMemory();
-	SpaceNode *n = getFirstPage();
-	printf("Memory: \n----------------------------------\n");
+	SpaceNode *n;
+	if (type == 0) {
+		n = getFirstPage();
+		printf("Memory: \n----------------------------------\n");
+	} else {
+		// READ SWAP FILE	
+		char *swap = getSwap();
+		n = (SpaceNode *)&swap[0];
+		printf("Swap: \n----------------------------------\n");
+	}
 	int i = 1;
 	while (n != NULL) {
 		if (n->free)
@@ -235,16 +395,25 @@ void printMemory()
 
 	}
 	printf("----------------------------------\n\n\n");
+	return 0;
+}
+
+void printSwap()
+{
+	printData(1);
+}
+
+void printMemory()
+{
+	printData(0);
 
 }
 
 void *myallocate (size_t size, char *file, int line, int request)
 {
-
 	if (mem[0] == 0) { //first run
 		mem[0] = 1;
-
-
+		
 		// System reserved space
 		SpaceNode new;
 		new.free = 1;
@@ -258,7 +427,6 @@ void *myallocate (size_t size, char *file, int line, int request)
 
 
 		// Free space for pages
-		
 		new.free = 1;
 		new.next = new.prev = NULL;
 		new.size = PHYSICAL_SIZE - MEMORY_START - sizeof(SpaceNode);
@@ -266,6 +434,19 @@ void *myallocate (size_t size, char *file, int line, int request)
 		new.pid = 0;
 
 		memcpy(&mem[MEMORY_START], &new, sizeof(SpaceNode));
+
+
+		// Create Swap file
+		static char swap[SWAP_SIZE] = "";
+		new.free = 1;
+		new.next = new.prev = NULL;
+		new.size = SWAP_SIZE - sizeof(SpaceNode);
+		new.start = &swap[0] + sizeof(SpaceNode);
+		new.pid = 0;
+		memcpy(&swap[0], &new, sizeof(SpaceNode));
+		writeSwap(swap);
+
+		
 	}
 
 	void *ptr = NULL;
@@ -283,69 +464,6 @@ void *myallocate (size_t size, char *file, int line, int request)
 			ptr = getFreePage(size, request);
 	}
 	return ptr;
-}
-
-int removeSpace(void *ptr, int type)
-{
-	SpaceNode *n;
-
-	if (type == PAGE)
-		n = (SpaceNode *) ptr;
-	else
-		n = ptr - sizeof(SpaceNode);
-
-	if (n->free)
-		return 0;
-
-	SpaceNode *a = n->prev;
-	SpaceNode *b = n->next;
-	if (a == NULL && b == NULL) {
-
-		n->free = 1;
-		
-	} else if (a == NULL && b != NULL) {
-		
-		n->free = 1;
-		if (b->free) {
-			n->size = b->size + sizeof(SpaceNode);
-			n->next = b->next;
-		}
-
-		
-	} else if (a != NULL && b == NULL) {
-		
-		if (a->free) {
-			a->size = n->size + sizeof(SpaceNode);
-			a->next = n->next;
-		} else
-			n->free = 1;
-		
-			
-	} else if (a != NULL && b != NULL) {
-		
-		if (!a->free && !b->free) {
-			
-			n->free = 1;
-			
-		} else if (!a->free && b->free) {
-			
-			n->size = b->size + sizeof(SpaceNode);
-			n->next = b->next;
-			
-		} else if (a->free && !b->free) {
-			
-			a->size = n->size + sizeof(SpaceNode);
-			a->next = n->next;
-			
-		} else if (a->free && b->free) {
-			
-			a->size = n->size + b->size + 2*sizeof(SpaceNode);
-			a->next = b->next;
-			
-		}
-	}
-			
-	return 0;
 }
 
 void mydeallocate(void* ptr, char *file, int line, int request)
