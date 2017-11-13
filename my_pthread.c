@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <time.h>
 #include "vm.h"
+#include <unistd.h>
 
 void threadExit(void *res)
 {
@@ -98,9 +99,9 @@ int setMyScheduler()
 
 int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg)
 {
-	sthread *t = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, -1);
+	sthread *t = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
 	*thread = t;
-	t->waitJoin = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, -1);
+	t->waitJoin = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
 
 	t->id = nextId;
 	nextId++;
@@ -110,13 +111,15 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 	t->priority = 0;
 	t->born = (unsigned long)time(NULL);
 
+	t->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, t->id);
+
 	if (getcontext(&(t->context)) != -1) {
 
 		t->context.uc_link = 0;
 
 		sigemptyset(&(t->context.uc_sigmask));
 
-		char *stack = (char *)myallocate(STACK_SIZE, "my_pthread.c", 0, -1);
+		char *stack = (char *)myallocate(STACK_SIZE, "my_pthread.c", 0, OSREQ);
 		t->context.uc_stack.ss_sp = stack;
 		t->context.uc_stack.ss_size = STACK_SIZE;
 		t->context.uc_stack.ss_flags = 0;
@@ -132,9 +135,9 @@ int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 {
 
 	if (run == NULL) {
-		run = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, -1);
-		mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, -1);
-		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, -1);
+		run = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
+		mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
+		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
 
 		nextId = 2;
 		mainThread->id = 1;
@@ -209,10 +212,10 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 int my_pthread_mutex_init(my_pthread_mutex_t * mutex,
 		const pthread_mutexattr_t * mutexattr)
 {
-	lock *l = (lock *) myallocate(sizeof(lock), "my_pthread.c", 0, -1);
+	lock *l = (lock *) myallocate(sizeof(lock), "my_pthread.c", 0, OSREQ);
 	(*mutex) = l;
 	l->state = 0;
-	l->wait = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, -1);
+	l->wait = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
 }
 
 int testAndSet(my_pthread_mutex_t * m)
