@@ -263,6 +263,30 @@ int movePageToSwap()
 	return 0;
 }
 
+// swaps pages p1 and p2
+int swapPages(SpaceNode *p1, SpaceNode *p2)
+{
+	if (p1 == p2)
+		return 1;
+	
+	size_t pageSize = p1->size + sizeof(SpaceNode);
+	char page1[pageSize];
+	memcpy(page1, p1, pageSize);
+	SpaceNode *backup = (SpaceNode *) &page1;
+
+	memcpy(p1, p2, pageSize);
+	p1->next = backup->next;
+	p1->prev = backup->prev;
+
+
+	backup->next = p2->next;
+	backup->prev = p2->prev;
+	memcpy(p2, page1, pageSize);
+
+	return 0;
+}
+
+
 void *getFreePage(size_t size, unsigned pid)
 {
 	SpaceNode *n = findFreePage();
@@ -282,7 +306,10 @@ void *getFreePage(size_t size, unsigned pid)
 		}
 			
 		setProcessPage(n, pid);
-		return (void *)n;
+
+		swapPages(getFirstPage(), n);
+		
+		return (void *)getFirstPage();
 	}
 }
 
@@ -319,28 +346,6 @@ void *getFreeOSElement(size_t size)
 	}
 }
 
-// swaps pages p1 and p2
-int swapPages(SpaceNode *p1, SpaceNode *p2)
-{
-	if (p1 == p2)
-		return 1;
-	
-	size_t pageSize = p1->size + sizeof(SpaceNode);
-	char page1[pageSize];
-	memcpy(page1, p1, pageSize);
-	SpaceNode *backup = (SpaceNode *) &page1;
-
-	memcpy(p1, p2, pageSize);
-	p1->next = backup->next;
-	p1->prev = backup->prev;
-
-
-	backup->next = p2->next;
-	backup->prev = p2->prev;
-	memcpy(p2, page1, pageSize);
-
-	return 0;
-}
 
 // page1 is page1 + page2
 void makeContiguous(SpaceNode *page1, SpaceNode *page2)
