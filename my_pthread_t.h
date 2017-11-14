@@ -11,6 +11,7 @@
 #include <ucontext.h>
 #include <sys/time.h>
 #include "LinkedList.h"
+#include "vm.h"
 
 #define STACK_SIZE 4096
 #define QUANTUM 25000
