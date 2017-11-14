@@ -572,23 +572,30 @@ static void handler(int sig, siginfo_t *si, void *unused)
 {
 	printf("Got SIGSEGV at address: 0x%lx\n",(long) si->si_addr);
 
+	long addr = (long) si->si_addr;
+	long last = (long)(&mem[0] + PHYSICAL_SIZE);
+	
+	if (addr >= MEMORY_START && addr <= last) {
 
-	splitPages(getFirstPage()); // restore last thread pages (make them non-contiguous)
+		splitPages(getFirstPage()); // restore last thread pages (make them non-contiguous)
 
 
-	// move all running thread's pages to the beginning and make them contiguous
-	unsigned pid = (*running)->id;
-	SpaceNode *p = findProcessPage(pid, NULL);
-	swapPages(getFirstPage(), p);
+		// move all running thread's pages to the beginning and make them contiguous
+		unsigned pid = (*running)->id;
+		SpaceNode *p = findProcessPage(pid, NULL);
+		swapPages(getFirstPage(), p);
 
-	SpaceNode *current = getFirstPage();
-	p = findProcessPage(pid, current->next);
-	while (p != NULL) {
-		makeContiguous(current, p);
+		SpaceNode *current = getFirstPage();
 		p = findProcessPage(pid, current->next);
-	}
+		while (p != NULL) {
+			makeContiguous(current, p);
+			p = findProcessPage(pid, current->next);
+		}
 
-	memoryAllow(current);
+		memoryAllow(current);
+	} else {
+		exit(1);
+	}
 }
 
 void init()
