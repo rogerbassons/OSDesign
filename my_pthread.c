@@ -53,6 +53,7 @@ void scheduler()
 
 	(*running)->priority += 1;
 
+	memoryProtect((*running)->pages);
 	if (!empty(run)) {
 
 		my_pthread_t *nextThread = pop(run);

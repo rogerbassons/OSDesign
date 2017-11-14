@@ -13,7 +13,7 @@
 #define PHYSICAL_SIZE  8000000 //8MB
 #define SWAP_SIZE 16000000 // 16MB
 #define MEMORY_START   2000000 // first 2MB are OS-reserved
-static char mem[PHYSICAL_SIZE]; // physical memory
+char *mem; // physical memory
 
 /* 
 Allocate memory block
@@ -41,6 +41,10 @@ Notice that this function does not change the value of ptr itself, hence it
 still points to the same (now invalid) location. 
 */ 
 void mydeallocate(void* ptr, char *file, int line, int request);
+
+
+int memoryProtect(void *page);
+int memoryAllow(void *page);
 
 void printOSMemory();
 void printMemory();
