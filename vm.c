@@ -578,6 +578,8 @@ static void handler(int sig, siginfo_t *si, void *unused)
 		makeContiguous(current, p);
 		p = findProcessPage(pid, current->next);
 	}
+
+	memoryAllow(current);
 }
 
 void init()
