@@ -1,11 +1,13 @@
 #include "../my_pthread_t.h"
 #include <stdio.h>
 
-void *test()
+void *test(void *p)
 {
 	int *x = (int *)malloc(sizeof(int));
+	printf("Pointer: %p\n", x);
 	*x = 0;
-	while (1)
+	int i;
+	for (i = 0; i < 10000; i++)
 		*x += 1;
 	pthread_exit(NULL);
 	return NULL;
@@ -29,7 +31,7 @@ int main()
 	}
 
 	for (i = 0; i < nThreads; i++) {
-		if(pthread_join(&t[i], NULL)) {
+		if(pthread_join(t[i], NULL)) {
 
 			fprintf(stderr, "Error joining thread\n");
 			return 2;
