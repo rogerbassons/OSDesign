@@ -266,8 +266,9 @@ int movePageToSwap()
 // swaps pages p1 and p2
 int swapPages(SpaceNode *p1, SpaceNode *p2)
 {
-	if (p1 == p2)
+	if (p1 == p2) {
 		return 1;
+	}
 	
 	size_t pageSize = p1->size + sizeof(SpaceNode);
 	char page1[pageSize];
@@ -310,6 +311,7 @@ void *getFreePage(size_t size, unsigned pid)
 		setProcessPage(n, pid);
 
 		swapPages(getFirstPage(), n);
+
 		
 		return (void *)getFirstPage();
 	}
@@ -428,6 +430,11 @@ void *getFreeElement(size_t size)
 		perror("Cannot find process page");
 		return NULL;
 	}
+
+
+	swapPages(getFirstPage(), p);
+	p = getFirstPage();
+	
 	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
 	
 	if (n == NULL) {
