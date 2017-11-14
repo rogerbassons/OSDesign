@@ -291,8 +291,9 @@ void *getFreePage(size_t size, unsigned pid)
 {
 	SpaceNode *n = findFreePage();
 	
+	
 	if (n == NULL) {
-		
+				
 		if (movePageToSwap()) {
 			return NULL;
 		} else {
@@ -300,6 +301,7 @@ void *getFreePage(size_t size, unsigned pid)
 		}
 
 	} else {
+		
 		if (createSpace(n, size, PAGE)) {
 			fprintf(stderr, "Error creating space for process %i\n", pid);
 			return NULL;
@@ -315,6 +317,7 @@ void *getFreePage(size_t size, unsigned pid)
 
 SpaceNode *findProcessPage(unsigned pid, SpaceNode *start)
 {
+
 	SpaceNode *n = getFirstPage();
 	if (start != NULL)
 		n = start;
@@ -594,7 +597,21 @@ static void handler(int sig, siginfo_t *si, void *unused)
 
 		memoryAllow(current);
 	} else {
-		exit(1);
+		sigaction(SIGSEGV, &oldSIGSEGV, NULL);
+	}
+}
+
+void setSIGSEGV()
+{
+	struct sigaction sa;
+	sa.sa_flags = SA_SIGINFO;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_sigaction = handler;
+		
+	if (sigaction(SIGSEGV, &sa, &oldSIGSEGV) == -1) {
+			
+		printf("Fatal error setting up signal handler\n");
+		exit(EXIT_FAILURE);    //explode!
 	}
 }
 
@@ -620,17 +637,7 @@ void init()
 
 
 	// set SIGSEGV handler
-	struct sigaction sa;
-	sa.sa_flags = SA_SIGINFO;
-	sigemptyset(&sa.sa_mask);
-	sa.sa_sigaction = handler;
-		
-	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
-			
-		printf("Fatal error setting up signal handler\n");
-		exit(EXIT_FAILURE);    //explode!
-	}
-
+	setSIGSEGV();
 
 	// Create Swap file
 	static char swap[SWAP_SIZE] = "";
@@ -647,6 +654,9 @@ void init()
 
 void *myallocate (size_t size, char *file, int line, int request)
 {
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+
 	if (mem == NULL) { //first run
 		init();
 	
@@ -666,11 +676,18 @@ void *myallocate (size_t size, char *file, int line, int request)
 		// reserve a page to a thread with id request
 		ptr = getFreePage(size, request);
 	}
+
+
+	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 	return ptr;
 }
 
 void mydeallocate(void* ptr, char *file, int line, int request)
 {
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+
+	
 	switch (request) {
 	case THREADREQ:
 		// deallocate
@@ -681,6 +698,7 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 		removeSpace(ptr, PAGE);
 
 	}
+	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
 
