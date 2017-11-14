@@ -349,8 +349,12 @@ void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 
 	swapPages(contiguousPage, page2);
 
+	void *dataStart = page1 + sizeof(SpaceNode) + page1->size;
 	page1->size += page2->size;
 	page1->next = page2->next;
+
+	
+	memcpy(dataStart, page2->start, page2->size);
 }
 
 // splits p1 into system page sized pages
