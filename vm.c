@@ -359,21 +359,36 @@ void *getFreePage(size_t size, unsigned pid)
 	}
 }
 
-SpaceNode *findProcessPage(unsigned pid, SpaceNode *start)
+
+
+SpaceNode *findPage(unsigned pid, SpaceNode *start, int number)
 {
 
 	SpaceNode *n = getFirstPage();
 	if (start != NULL)
 		n = start;
-	
-	while (n != NULL && n->pid != pid) {
-		n = getNextSpace(n);
-	}
 
-	if (n != NULL && n->pid == pid)
-		return n;
-	else
-		return NULL;
+	int i = 0;
+	SpaceNode *res = NULL;
+	while (n != NULL && i < number) {
+	
+		while (n != NULL && n->pid != pid) {
+			n = getNextSpace(n);
+		}
+		
+		if (n != NULL && n->pid == pid) {
+			res = n;
+			n = getNextSpace(n);
+			i++;
+		} 
+			
+	}
+	return res;
+}
+
+SpaceNode *findProcessPage(unsigned pid, SpaceNode *start)
+{
+	return findPage(pid, start, 1);
 }
 
 void *getFreeOSElement(size_t size)
@@ -413,22 +428,24 @@ void joinFreeMemory(SpaceNode *e)
 // page1 is page1 + page2
 void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 {
-	SpaceNode *contiguousPage = page1->next;
+	if (page1 != page2) {
+		SpaceNode *contiguousPage = page1->next;
 
-	swapPages(contiguousPage, page2);
-		
+		swapPages(contiguousPage, page2);
+			
 
-	size_t size = page2->size;
+		size_t size = page2->size;
 	
-	void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
-	page1->size += page2->size;
-	page1->next = page2->next;
+		void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
+		page1->size += page2->size;
+		page1->next = page2->next;
 
 	
-	memmove(dataStart, page2->start, size);
-	restoreElementsPointers(page1->start, page1->size);
-	joinFreeMemory(page1->start);
-	printMemory();
+		memmove(dataStart, page2->start, size);
+		restoreElementsPointers(page1->start, page1->size);
+		joinFreeMemory(page1->start);
+	}
+	      
 }
 
 // splits p1 into system page sized pages
@@ -466,17 +483,16 @@ void splitPages(SpaceNode *p)
 
 int reserveAnotherPage(SpaceNode *page)
 {
+	unsigned pid = page->pid;
+	
 	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), page->pid);
 	if (newPage == NULL) {
 		printf("No free pages while reserving another page\n");
 		return 1;
 	}
 
-
-	SpaceNode *first = getFirstPage();
-	
-	swapPages(first, page);
-	makeContiguous(first, newPage);
+	page = findPage(pid, NULL, 2);
+	makeContiguous(newPage, page);
 
 	return 0;
 }
@@ -555,6 +571,7 @@ int printData(void * start, int type)
 	while (n != NULL) {
 		if (!n->free) {
 			printf("----- Page thread %i -----\n", n->pid);
+			printf("Page address %p     \n", n);
 			printf("Size: %i\n", n->size);
 			printf("      Contents:\n");
 
