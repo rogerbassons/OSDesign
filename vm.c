@@ -607,45 +607,40 @@ void initializeFreePages()
 }
 
 
-int memoryProtect(int pid)
+int memoryProtect(void *page)
 {
-	SpaceNode *p = findProcessPage(pid, NULL);
-	while (p != NULL) {
-		if(mprotect((void *)p, sizeof(SpaceNode) + p->size, PROT_NONE))
+	if(mprotect(page, sysconf(_SC_PAGE_SIZE), PROT_NONE))
 			return 1;
-		p = findProcessPage(pid, p->next);
-	}
 }
 
-int memoryAllow(int pid)
+int memoryAllow()
 {
-	SpaceNode *p = findProcessPage(pid, NULL);
-	while (p != NULL) {
-		if(mprotect((void *)p, sizeof(SpaceNode) + p->size, PROT_READ | PROT_WRITE))
-			return 1;
-		p = findProcessPage(pid, p->next);
+	size_t pageSize = sysconf(_SC_PAGE_SIZE);
+	mprotect(mem + MEMORY_START, pageSize, PROT_READ | PROT_WRITE);
+	SpaceNode *first = getFirstPage();
+	if (first->size > pageSize - sizeof(SpaceNode)) {
+		mprotect(mem + MEMORY_START, first->size, PROT_READ | PROT_WRITE);
 	}
 }
 
 
 static void handler(int sig, siginfo_t *si, void *unused)
 {
-	printf("Got SIGSEGV at address: 0x%lx\n",(long) si->si_addr);
+	//printf("Got SIGSEGV at address: 0x%lx\n",(long) si->si_addr);
 
 	long addr = (long) si->si_addr;
 
 	long first = (long) mem + MEMORY_START;
 	long last = (long) mem + PHYSICAL_SIZE;
-	printf("MEMORY_START at address: 0x%lx\n",(long) first);
-	printf("LAST at address: 0x%lx\n",(long) last);
 	
 	if (addr >= first && addr < last) {
-		printf("Swaping pages...\n");
-		splitPages(getFirstPage()); // restore last thread pages (make them non-contiguous)
 
-
+		memoryAllow();
+		splitPages(getFirstPage());
 		// move all running thread's pages to the beginning and make them contiguous
+
 		unsigned pid = (*running)->id;
+
 		SpaceNode *p = findProcessPage(pid, NULL);
 		swapPages(getFirstPage(), p);
 
@@ -656,7 +651,7 @@ static void handler(int sig, siginfo_t *si, void *unused)
 			p = findProcessPage(pid, current->next);
 		}
 
-		memoryAllow(current->pid);
+		
 	} else {
 		sigaction(SIGSEGV, &oldSIGSEGV, NULL);
 	}

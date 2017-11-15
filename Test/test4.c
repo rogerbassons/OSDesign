@@ -3,17 +3,15 @@
 
 void *test(void *p)
 {
-	printf("Allocating...\n");
 	int *x = (int *)malloc(sizeof(int));
 	printf("Pointer: %p\n", x);
 	*x = 0;
 	int i;
 	
-	for (i = 0; i < 10000; i++) {
+	for (i = 0; i < 10000000; i++) {
 		*x += 1;
 	}
 	printf("Result: %i\n", *x);
-	//printMemory();
 		
 	return NULL;
 }
@@ -21,7 +19,7 @@ void *test(void *p)
 int main()
 {
 
- 	int nThreads = 5;
+ 	int nThreads = 10;
 	
 	pthread_t t[nThreads];
 

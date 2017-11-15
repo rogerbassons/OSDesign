@@ -20,6 +20,9 @@ void threadExit(void *res)
 
 	if (!empty(run)) {
 		
+		if (VIRTUAL_MEMORY) 
+			memoryProtect((void*)((*running)->pages));
+		
 		*running = *pop(run);
 
 		timer->it_value.tv_usec = QUANTUM;
@@ -56,7 +59,7 @@ void scheduler()
 	(*running)->priority += 1;
 
 	if (VIRTUAL_MEMORY) 
-		memoryProtect((*running)->id);
+		memoryProtect((void*)((*running)->pages));
 	
 	if (!empty(run)) {
 
