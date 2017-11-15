@@ -9,11 +9,11 @@
 #define OSREQ -1
 #define SWAPREQ -2
 
-#define VIRTUAL_MEMORY 0
+#define VIRTUAL_MEMORY 1
 #define PHYSICAL_SIZE  8000000 //8MB
 #define SWAP_SIZE 16000000 // 16MB
 #define MEMORY_START   2000000 // first 2MB are OS-reserved
-static char *mem; // physical memory
+char *mem; // physical memory
 struct sigaction oldSIGSEGV;
 
 /* 

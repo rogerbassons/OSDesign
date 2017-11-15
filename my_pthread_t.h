@@ -13,7 +13,7 @@
 #include "LinkedList.h"
 #include "vm.h"
 
-#define STACK_SIZE 2048
+#define STACK_SIZE 16348
 #define QUANTUM 25000
 
 // My pthread structure

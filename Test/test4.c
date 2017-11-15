@@ -35,7 +35,7 @@ int main()
 			
 		}
 	}
-
+			
 
 	for (i = 0; i < nThreads; i++) {
 		if(pthread_join(t[i], NULL)) {

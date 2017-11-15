@@ -478,9 +478,9 @@ void *getFreeElement(size_t size)
 		swapPages(getFirstPage(), p);
 		p = getFirstPage();
 	}
-	
+
 	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
-	
+
 	if (n == NULL) {
 		if (VIRTUAL_MEMORY) {
 			printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
@@ -639,8 +639,10 @@ static void handler(int sig, siginfo_t *si, void *unused)
 
 	long first = (long) &mem[MEMORY_START];
 	long last = (long) &mem[0] + PHYSICAL_SIZE;
+	printf("MEMORY_START at address: 0x%lx\n",(long) first);
+	printf("LAST at address: 0x%lx\n",(long) last);
 	
-	if (addr >= first && addr < last) {
+	if (addr < first && addr > last) {
 		printf("Swaping pages...\n");
 		splitPages(getFirstPage()); // restore last thread pages (make them non-contiguous)
 
@@ -740,8 +742,8 @@ void *myallocate (size_t size, char *file, int line, int request)
 	default:
 		// reserve a page to a thread with id request
 		ptr = getFreePage(size, request);
-	}
 
+	}
 
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 	return ptr;

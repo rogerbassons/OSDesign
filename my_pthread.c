@@ -162,14 +162,12 @@ int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
 		*running = mainThread;
 
-		//TEST TODO
-		int *x = myallocate(sizeof(int), "my_pthread.c", 0, THREADREQ); 
-		
 		nSchedulings = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
 		*nSchedulings = 0;
 
 		setMyScheduler();
 	}
+
 
 	sigset_t oldmask;
 	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
@@ -214,7 +212,6 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 
 
 		if (!empty(run)) {
-
 			ucontext_t *old = &((*running)->context);
 
 			*running = *pop(run);
