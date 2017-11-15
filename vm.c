@@ -25,7 +25,7 @@ typedef struct spaceNode {
 
 SpaceNode *getFirstPage()
 {
-	return (SpaceNode *) &mem[MEMORY_START];
+	return (SpaceNode *) (mem + MEMORY_START);
 }
 
 SpaceNode *getNextSpace(SpaceNode *old)
@@ -185,11 +185,12 @@ void restorePointers(SpaceNode *n, size_t size, int type)
 	SpaceNode *old = NULL;
 	while (s < size) {
 		size_t offset = sizeof(SpaceNode) + n->size;
-
-		SpaceNode *next = ((void *)n) + offset;
+		void *start = ((void *)n);
+		
+		SpaceNode *next = start + offset;
 		n->next = next;
 		n->prev = old;
-
+		n->start = start + sizeof(SpaceNode);
 
 		if (type == 0) {
 			SpaceNode *firstElement = ((void *) n) + sizeof(SpaceNode);
@@ -286,7 +287,6 @@ int movePageToSwap()
 	return 0;
 }
 
-
 // p1 and p2 are the same size
 // swaps pages p1 and p2
 int swapPages(SpaceNode *p1, SpaceNode *p2)
@@ -297,13 +297,14 @@ int swapPages(SpaceNode *p1, SpaceNode *p2)
 	size_t pageSize = p1->size + sizeof(SpaceNode);
 	char copy[pageSize];
 
-
 	void *start = p1->start;
 	SpaceNode *next = p1->next;
 	SpaceNode *prev = p1->prev;
 
-	memcpy((void *) copy, (void *) p1, pageSize);
-	memcpy((void *) p1, (void *) p2, pageSize);
+
+	memcpy((char *) copy, (char *) p1, pageSize);
+
+	memmove((void *) p1, (void *) p2, pageSize);
 	p1->next = next;
 	p1->prev = prev;
 	p1->start = start;
@@ -313,7 +314,7 @@ int swapPages(SpaceNode *p1, SpaceNode *p2)
 	next = p2->next;
 	prev = p2->prev;
 
-	memcpy((void *) p2, (void *) copy, pageSize);
+	memmove((void *) p2, (void *) copy, p2->size + sizeof(SpaceNode));
 	p2->next = next;
 	p2->prev = prev;
 	p2->start = start;
@@ -351,7 +352,7 @@ void *getFreePage(size_t size, unsigned pid)
 			SpaceNode *first = getFirstPage();
 			swapPages(first, n);
 
-		
+
 			return (void *)first;
 		} else
 			return (void *)n;
@@ -377,7 +378,7 @@ SpaceNode *findProcessPage(unsigned pid, SpaceNode *start)
 
 void *getFreeOSElement(size_t size)
 {
-	SpaceNode *n = findFreeSpace((SpaceNode *)(&mem[0]), size);
+	SpaceNode *n = findFreeSpace((SpaceNode *)mem, size);
 
 	if (n == NULL) {
 		perror("Error: No free space for OS data");
@@ -508,7 +509,7 @@ void *getFreeElement(size_t size)
 void printOSMemory()
 {
 	printf("\n\nOS Memory: \n----------------------------------\n");
-	SpaceNode *n = (SpaceNode *) &mem[0];
+	SpaceNode *n = (SpaceNode *) mem;
 	int i = 1;
 	while (n != NULL) {
 		if (n->free)
@@ -526,16 +527,12 @@ void printOSMemory()
 	printf("----------------------------------\n");
 }
 
-int printData(int type)
+int printData(void * start, int type)
 {
-	SpaceNode *n;
+	SpaceNode *n = (SpaceNode *)start;
 	if (type == 0) {
-		n = getFirstPage();
 		printf("Memory: \n----------------------------------\n");
 	} else {
-		// READ SWAP FILE	
-		char *swap = getSwap();
-		n = (SpaceNode *)&swap[0];
 		printf("Swap: \n----------------------------------\n");
 	}
 	while (n != NULL) {
@@ -570,12 +567,12 @@ int printData(int type)
 
 void printSwap()
 {
-	printData(1);
+	printData(getSwap(), 1);
 }
 
 void printMemory()
 {
-	printData(0);
+	printData(getFirstPage(), 0);
 
 }
  
@@ -589,8 +586,8 @@ void initializeFreePages()
 	i.pid = 0;
 
 	SpaceNode *prev = NULL;
-	size_t freeSpace = PHYSICAL_SIZE - MEMORY_START - 1;
-	void *start = &mem[MEMORY_START];
+	size_t freeSpace = PHYSICAL_SIZE - MEMORY_START;
+	void *start = mem + MEMORY_START;
 
 	while (freeSpace >= pageSize) {
 		i.start = start + sizeof(SpaceNode);
@@ -637,12 +634,12 @@ static void handler(int sig, siginfo_t *si, void *unused)
 
 	long addr = (long) si->si_addr;
 
-	long first = (long) &mem[MEMORY_START];
-	long last = (long) &mem[0] + PHYSICAL_SIZE;
+	long first = (long) mem + MEMORY_START;
+	long last = (long) mem + PHYSICAL_SIZE;
 	printf("MEMORY_START at address: 0x%lx\n",(long) first);
 	printf("LAST at address: 0x%lx\n",(long) last);
 	
-	if (addr < first && addr > last) {
+	if (addr >= first && addr < last) {
 		printf("Swaping pages...\n");
 		splitPages(getFirstPage()); // restore last thread pages (make them non-contiguous)
 
@@ -685,17 +682,16 @@ void init()
 		perror("Can't reserve space for main memory");
 		exit(1);
 	}
-     
 		
 	// System reserved space
 	SpaceNode new;
 	new.free = 1;
 	new.next = new.prev = NULL;
 	new.size = MEMORY_START - sizeof(SpaceNode) - 1;
-	new.start = &mem[0] + sizeof(SpaceNode);
+	new.start = mem + sizeof(SpaceNode);
 	new.pid = 0;
 
-	memcpy(&mem[0], &new, sizeof(SpaceNode));
+	memcpy(mem, &new, sizeof(SpaceNode));
 
 
 
@@ -712,9 +708,9 @@ void init()
 	new.free = 1;
 	new.next = new.prev = NULL;
 	new.size = SWAP_SIZE - sizeof(SpaceNode);
-	new.start = &swap[0] + sizeof(SpaceNode);
+	new.start = swap + sizeof(SpaceNode);
 	new.pid = 0;
-	memcpy(&swap[0], &new, sizeof(SpaceNode));
+	memcpy(swap, &new, sizeof(SpaceNode));
 	writeSwap(swap);
 		
 }
