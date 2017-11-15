@@ -7,20 +7,22 @@
 void threadExit(void *res)
 {
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
 	(*running)->finished = 1;
+	
 	if (res != NULL)
 		(*running)->res = &res;
-
+	
 	while (!empty((*running)->waitJoin)) {
 		pushOrdered(0, run, pop((*running)->waitJoin));
 	}
 
 	if (!empty(run)) {
+		
 		*running = *pop(run);
 
-		timer.it_value.tv_usec = QUANTUM;
+		timer->it_value.tv_usec = QUANTUM;
 
 		sigprocmask(SIG_SETMASK, &oldmask, NULL);
 		setcontext(&((*running)->context));
@@ -33,7 +35,7 @@ void *threadRun(my_pthread_t t)
 {
 	void **res = t->function(t->arg);
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 	if (res != NULL) {
 		threadExit(*res);
 	} else {
@@ -44,11 +46,11 @@ void *threadRun(my_pthread_t t)
 void scheduler()
 {
 
-	timer.it_value.tv_usec = QUANTUM;
-	nSchedulings += 1;
-	if (nSchedulings > 150) {
+	timer->it_value.tv_usec = QUANTUM;
+	*nSchedulings += 1;
+	if (*nSchedulings > 150) {
 		orderByOldest(run);
-		nSchedulings = 0;
+		*nSchedulings = 0;
 	}
 
 	(*running)->priority += 1;
@@ -82,20 +84,22 @@ void interrupt(int signum)
 
 int setMyScheduler()
 {
-	nSchedulings = 0;
+	*nSchedulings = 0;
 
-	sa.sa_handler = interrupt;
-	sigemptyset(&sa.sa_mask);
-	sigaddset(&sa.sa_mask, SIGPROF);
-	sa.sa_flags = 0;	
-	sigaction(SIGPROF, &sa, NULL);
+	sa = (struct sigaction *) myallocate(sizeof(struct sigaction), "my_pthread.c", 0, OSREQ);
+	timer = (struct itimerval *) myallocate(sizeof(struct itimerval), "my_pthread.c", 0, OSREQ);
+	sa->sa_handler = interrupt;
+	sigemptyset(&sa->sa_mask);
+	sigaddset(&sa->sa_mask, SIGPROF);
+	sa->sa_flags = 0;	
+	sigaction(SIGPROF, sa, NULL);
 
-	timer.it_value.tv_sec = 0;
-	timer.it_value.tv_usec = QUANTUM;
-	timer.it_interval.tv_sec = 0;
-	timer.it_interval.tv_usec = QUANTUM;
+	timer->it_value.tv_sec = 0;
+	timer->it_value.tv_usec = QUANTUM;
+	timer->it_interval.tv_sec = 0;
+	timer->it_interval.tv_usec = QUANTUM;
 
-	setitimer(ITIMER_PROF, &timer, NULL);
+	setitimer(ITIMER_PROF, timer, NULL);
 }
 
 int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg)
@@ -104,8 +108,8 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 	*thread = t;
 	t->waitJoin = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
 
-	t->id = nextId;
-	nextId++;
+	t->id = *nextId;
+	(*nextId)++;
 	t->function = function;
 	t->arg = arg;
 	t->finished = 0;
@@ -134,22 +138,39 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr, 
 		void *(*function) (void *), void *arg)
 {
+	if (thread == NULL)
+		return 1;
 
 	if (run == NULL) {
 		run = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
-		mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
-		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
 
-		nextId = 2;
-		mainThread->id = 1;
+		nextId = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
+		*nextId = 1;
+
+		mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
+		mainThread->id = *nextId;
 		mainThread->priority = 0;
 		mainThread->born = (unsigned long)time(NULL);
-		nSchedulings = 0;
+		mainThread->function = NULL;
+		mainThread->arg = NULL;
+		mainThread->finished = 0;
+		mainThread->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, *nextId);
+		(*nextId)++;
+
+		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
 		*running = mainThread;
+
+		//TEST TODO
+		int *x = myallocate(sizeof(int), "my_pthread.c", 0, THREADREQ); 
+		
+		nSchedulings = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
+		*nSchedulings = 0;
+
 		setMyScheduler();
 	}
+
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
 	createNewThread(thread, function, arg);
 	pushOrdered(0, run, thread);
@@ -163,7 +184,7 @@ int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 void my_pthread_yield()
 {
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 	if ((*running)->priority > 0) { 
 		(*running)->priority -= 1;
 	}
@@ -184,10 +205,11 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 
 	sigset_t oldmask;
 
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
 	if (!thread->finished) {
 		pushOrdered(0, thread->waitJoin, running);
+
 
 		if (!empty(run)) {
 
@@ -198,6 +220,10 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 			sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
 			swapcontext(old, &((*running)->context));
+		} else {
+			mydeallocate(run, "my_pthread.c", 0, OSREQ);
+			mydeallocate(mainThread, "my_pthread.c", 0, OSREQ);
+			mydeallocate(running, "my_pthread.c", 0, OSREQ);
 		}
 	}
 
@@ -234,11 +260,11 @@ int my_pthread_mutex_lock(my_pthread_mutex_t * mutex)
 
 	while (testAndSet(mutex) == 1) {
 		sigset_t oldmask;
-		sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+		sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
 		if (m->state == 1) {
 			push(m->wait, running);
-			timer.it_value.tv_usec = QUANTUM;
+			timer->it_value.tv_usec = QUANTUM;
 
 			ucontext_t *old = &((*running)->context);
 
@@ -256,7 +282,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t * mutex)
 int my_pthread_mutex_unlock(my_pthread_mutex_t * mutex)
 {
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 	my_pthread_mutex_t m = *mutex;
 
 	if (!empty(m->wait)) {
@@ -273,7 +299,7 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t * mutex)
 int my_pthread_mutex_destroy(my_pthread_mutex_t * mutex)
 {
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 	my_pthread_mutex_t m = *mutex;
 	while (!empty(m->wait)) {
 		pushOrdered(0, run, pop(m->wait));

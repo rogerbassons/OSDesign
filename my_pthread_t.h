@@ -13,7 +13,7 @@
 #include "LinkedList.h"
 #include "vm.h"
 
-#define STACK_SIZE 4096
+#define STACK_SIZE 2048
 #define QUANTUM 25000
 
 // My pthread structure
@@ -41,11 +41,11 @@ struct lock {
 };
 typedef lock* my_pthread_mutex_t;
 
-unsigned nextId;
+unsigned *nextId;
 LinkedList *run; // run queue, processes that want to run and are not waiting for a lock
 my_pthread_t *running; // thread currently running (only one cpu)
 sthread *mainThread; // store the context of the calling main program
-unsigned int nSchedulings; // times that the scheduler has run
+unsigned *nSchedulings; // times that the scheduler has run
 
 // context for the scheduler
 // the scheduler will be run swaping this context
@@ -54,8 +54,8 @@ char signalStack[STACK_SIZE];
 
 
 // alarm and timer
-struct sigaction sa;
-struct itimerval timer;
+struct sigaction *sa;
+struct itimerval *timer;
 
 
 // Creates a pthread that executes function. Attributes are ignored, arg is not. 

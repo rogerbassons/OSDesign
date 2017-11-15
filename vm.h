@@ -13,7 +13,7 @@
 #define PHYSICAL_SIZE  8000000 //8MB
 #define SWAP_SIZE 16000000 // 16MB
 #define MEMORY_START   2000000 // first 2MB are OS-reserved
-char *mem; // physical memory
+static char *mem; // physical memory
 struct sigaction oldSIGSEGV;
 
 /* 

@@ -3,13 +3,17 @@
 
 void *test(void *p)
 {
+	printf("Allocating...\n");
 	int *x = (int *)malloc(sizeof(int));
 	printf("Pointer: %p\n", x);
 	*x = 0;
 	int i;
-	for (i = 0; i < 10000; i++)
+	
+	for (i = 0; i < 10000; i++) {
 		*x += 1;
-	pthread_exit(NULL);
+	}
+	//printMemory();
+		
 	return NULL;
 }
 
@@ -20,6 +24,7 @@ int main()
 	
 	pthread_t t[nThreads];
 
+
 	int i;
 	for (i = 0; i < nThreads; i++) {
 		if(pthread_create(&t[i], NULL, test, NULL)) {
@@ -29,6 +34,7 @@ int main()
 			
 		}
 	}
+
 
 	for (i = 0; i < nThreads; i++) {
 		if(pthread_join(t[i], NULL)) {
