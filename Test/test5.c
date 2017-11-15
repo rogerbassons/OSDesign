@@ -8,14 +8,13 @@ void *test(void *p)
 	int size = sizeof(char) * 5000;
 	char *buff = malloc(size);
 
-	printMemory();
+
 	strcpy(buff, "a");
 	int i;
 	for (i = 0; i < size-2; i++) {
 		strcat(buff, "a");
 	}
 	printf("Result (%i characters): %s\n", i+1,buff);
-		
 	return NULL;
 }
 

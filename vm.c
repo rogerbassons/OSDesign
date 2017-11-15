@@ -16,8 +16,10 @@ FILE *f = NULL;
 typedef struct spaceNode {
 	unsigned pid;
 	unsigned free;
+	unsigned split;
 	void *start;
 	unsigned size;
+	unsigned unusedSize;
 	struct spaceNode *next;
 	struct spaceNode *prev;
 } SpaceNode;
@@ -67,8 +69,10 @@ int initializeSpace(SpaceNode *n)
 	SpaceNode new;
 
 	new.free = 1;
+	new.split = 0;
 	new.next = new.prev = NULL;
 	new.size = n->size - sizeof(SpaceNode);
+	new.unusedSize = 0;
 	new.start = n->start + sizeof(SpaceNode);
 	new.pid = 0;
 
@@ -92,10 +96,12 @@ int createSpace(SpaceNode *n, size_t size, int type)
 
 			SpaceNode new;
 			new.free = 1;
+			new.split = 0;
 			new.prev = n;
 			new.next = n->next;
 			new.pid = 0;
 			new.size = restSize;
+			new.unusedSize = 0;
 
 			void *newPos = n->start + size;
 			new.start = newPos + sizeof(SpaceNode);
@@ -128,7 +134,8 @@ int removeSpace(void *ptr, int type)
 	SpaceNode *b = n->next;
 
 	n->free = 1;
-	n->pid = 0;	
+	n->pid = 0;
+	n->split = 0;
 
 	if (type != PAGE) {
 		if (a == NULL && b != NULL) {
@@ -438,6 +445,7 @@ void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 	
 		void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
 		page1->size += page2->size;
+		page1->unusedSize = sizeof(SpaceNode);
 		page1->next = page2->next;
 
 	
@@ -449,36 +457,55 @@ void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 }
 
 // splits p1 into system page sized pages
-void splitPages(SpaceNode *p)
+void splitPages(void *pages)
 {
+	SpaceNode *p = (SpaceNode *) pages;
+
 	size_t pageSize = sysconf( _SC_PAGE_SIZE);
-	size_t dataSize = pageSize - sizeof(SpaceNode);
+	size_t size = p->size + sizeof(SpaceNode) + p->unusedSize;
 
-	size_t size = p->size + sizeof(SpaceNode);
-	char copy[size];
-	memcpy(copy, p, size); // copy whole "page" to copy
-
-	int i = 0;
-	void *start = ((void *)p);
-	while (size > pageSize) {
-
-		
-
+	if (size > pageSize) {
+		char copy[size];
+		memcpy(copy, p, size); // copy multiple pages "page" to copy
 
 		SpaceNode new;
 		new.free = 0;
-		new.next = p->next;
-		new.prev = p;
-		new.size = pageSize;
-		new.start =  start + sizeof(SpaceNode);
+		new.split = 1;
 		new.pid = p->pid;
-
-		memcpy(start, &new, sizeof(SpaceNode));
-		memcpy(start + sizeof(SpaceNode), &copy + pageSize + dataSize*i, dataSize);
+		new.size = pageSize - sizeof(SpaceNode);
+		new.unusedSize = 0;
+		new.next = NULL;
 		
-		i++;
-		size -= pageSize;
+	
+		void *start = pages;
+		void *copyStart = copy;
+		SpaceNode *prev = NULL;
+		int i = 0;
+		while (size >= pageSize) {
+
+			if (prev != NULL)
+				prev->next = start;
+			new.prev = prev;
+		
+			new.start =  start + sizeof(SpaceNode);
+		
+			memmove(start, &new, sizeof(SpaceNode));
+			prev = (SpaceNode *) start;
+			start += sizeof(SpaceNode);
+
+		
+			copyStart += sizeof(SpaceNode);
+			memmove(start, copyStart, new.size);
+			start += new.size;
+			copyStart +=  new.size;
+
+			i++;
+			size -= pageSize;
+		}
+		if (prev != NULL)
+			prev->next = start;
 	}
+	printMemory();
 }
 
 int reserveAnotherPage(SpaceNode *page)
@@ -573,20 +600,24 @@ int printData(void * start, int type)
 			printf("----- Page thread %i -----\n", n->pid);
 			printf("Page address %p     \n", n);
 			printf("Size: %i\n", n->size);
-			printf("      Contents:\n");
 
-			SpaceNode *s = (SpaceNode *) n->start;
-			int j = 1;
-			while (s != NULL) {
-				if (s->free)
-					printf("      ----- Free Space -----\n");
-				else {
-					printf("      ----- Element %i -----\n", j);
-					j++;
+			if (!n->split) {
+				printf("      Contents:\n");
+
+				SpaceNode *s = (SpaceNode *) n->start;
+				int j = 1;
+				while (s != NULL) {
+					if (s->free)
+						printf("      ----- Free Space -----\n");
+					else {
+						printf("      ----- Element %i -----\n", j);
+						j++;
+					}
+					printf("      Size: %i\n", s->size);
+					s = getNextSpace(s);
 				}
-				printf("      Size: %i\n", s->size);
-				s = getNextSpace(s);
-			}
+			} else
+				printf("      Page is split\n");
 		     
 			
 			printf("\n");
@@ -615,6 +646,7 @@ void initializeFreePages()
 	size_t pageSize = sysconf(_SC_PAGE_SIZE); 
 	SpaceNode i;
 	i.free = 1;
+	i.split = 0;
 	i.next = i.prev = NULL;
 	i.size = pageSize - sizeof(SpaceNode);
 	i.pid = 0;
@@ -644,7 +676,7 @@ void initializeFreePages()
 int memoryProtect(void *page)
 {
 	if(mprotect(page, sysconf(_SC_PAGE_SIZE), PROT_NONE))
-			return 1;
+		return 1;
 }
 
 int memoryAllow()
@@ -670,19 +702,21 @@ static void handler(int sig, siginfo_t *si, void *unused)
 	if (addr >= first && addr < last) {
 
 		memoryAllow();
-		splitPages(getFirstPage());
+		//splitPages(getFirstPage());
 		// move all running thread's pages to the beginning and make them contiguous
 
 		unsigned pid = (*running)->id;
 
 		SpaceNode *p = findProcessPage(pid, NULL);
-		swapPages(getFirstPage(), p);
-
-		SpaceNode *current = getFirstPage();
-		p = findProcessPage(pid, current->next);
-		while (p != NULL) {
-			makeContiguous(current, p);
+		if (p != NULL) {
+			swapPages(getFirstPage(), p);
+			
+			SpaceNode *current = getFirstPage();
 			p = findProcessPage(pid, current->next);
+			while (p != NULL) {
+				makeContiguous(current, p);
+				p = findProcessPage(pid, current->next);
+			}
 		}
 
 		
