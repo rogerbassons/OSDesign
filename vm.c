@@ -464,7 +464,7 @@ void splitPages(void *pages)
 	size_t pageSize = sysconf( _SC_PAGE_SIZE);
 	size_t size = p->size + sizeof(SpaceNode) + p->unusedSize;
 
-	if (size > pageSize) {
+	if ( size > pageSize) {
 		char copy[size];
 		memcpy(copy, p, size); // copy multiple pages "page" to copy
 
@@ -505,7 +505,6 @@ void splitPages(void *pages)
 		if (prev != NULL)
 			prev->next = start;
 	}
-	printMemory();
 }
 
 int reserveAnotherPage(SpaceNode *page)
