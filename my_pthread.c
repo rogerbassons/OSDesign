@@ -13,7 +13,7 @@ void threadExit(void *res)
 	
 	if (res != NULL)
 		(*running)->res = &res;
-	
+
 	while (!empty((*running)->waitJoin)) {
 		pushOrdered(0, run, pop((*running)->waitJoin));
 	}
@@ -55,7 +55,9 @@ void scheduler()
 
 	(*running)->priority += 1;
 
-	memoryProtect((*running)->pages);
+	if (VIRTUAL_MEMORY) 
+		memoryProtect((*running)->id);
+	
 	if (!empty(run)) {
 
 		my_pthread_t *nextThread = pop(run);

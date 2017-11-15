@@ -12,6 +12,7 @@ void *test(void *p)
 	for (i = 0; i < 10000; i++) {
 		*x += 1;
 	}
+	printf("Result: %i\n", *x);
 	//printMemory();
 		
 	return NULL;

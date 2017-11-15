@@ -9,7 +9,7 @@
 #define OSREQ -1
 #define SWAPREQ -2
 
-
+#define VIRTUAL_MEMORY 0
 #define PHYSICAL_SIZE  8000000 //8MB
 #define SWAP_SIZE 16000000 // 16MB
 #define MEMORY_START   2000000 // first 2MB are OS-reserved
@@ -44,8 +44,8 @@ still points to the same (now invalid) location.
 void mydeallocate(void* ptr, char *file, int line, int request);
 
 
-int memoryProtect(void *page);
-int memoryAllow(void *page);
+int memoryProtect(int pid);
+int memoryAllow(int pid);
 
 void printOSMemory();
 void printMemory();

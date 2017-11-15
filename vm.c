@@ -347,11 +347,14 @@ void *getFreePage(size_t size, unsigned pid)
 			
 		setProcessPage(n, pid);
 
-		SpaceNode *first = getFirstPage();
-		swapPages(first, n);
+		if (VIRTUAL_MEMORY) {
+			SpaceNode *first = getFirstPage();
+			swapPages(first, n);
 
 		
-		return (void *)first;
+			return (void *)first;
+		} else
+			return (void *)n;
 	}
 }
 
@@ -416,13 +419,14 @@ void splitPages(SpaceNode *p)
 	char copy[size];
 	memcpy(copy, p, size); // copy whole "page" to copy
 
-
 	int i = 0;
+	void *start = ((void *)p);
 	while (size > pageSize) {
+
+		
+
+
 		SpaceNode new;
-
-		void *start = ((void *)p) + pageSize;
-
 		new.free = 0;
 		new.next = p->next;
 		new.prev = p;
@@ -470,21 +474,25 @@ void *getFreeElement(size_t size)
 		return NULL;
 	}
 
-
-	swapPages(getFirstPage(), p);
-	p = getFirstPage();
+	if (VIRTUAL_MEMORY) {
+		swapPages(getFirstPage(), p);
+		p = getFirstPage();
+	}
 	
 	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
 	
 	if (n == NULL) {
-		printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
-		if (reserveAnotherPage(p)) {
-			perror("Error reserving another page: no free space");
-			return NULL;
-		}
+		if (VIRTUAL_MEMORY) {
+			printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
+			if (reserveAnotherPage(p)) {
+				perror("Error reserving another page: no free space");
+				return NULL;
+			}
 			
-		return getFreeElement(size);
+			return getFreeElement(size);
+		}
 		return NULL;
+			
 	} else {
 	
 		
@@ -602,20 +610,26 @@ void initializeFreePages()
 }
 
 
-int memoryProtect(void *page)
+int memoryProtect(int pid)
 {
-	SpaceNode *n = (SpaceNode *) page;
-	if (!n->free)
-		return mprotect(page, n->size, PROT_NONE);  //disallow all accesses of address buffer over length pagesize
-	else
-		return 1;
+	SpaceNode *p = findProcessPage(pid, NULL);
+	while (p != NULL) {
+		if(mprotect((void *)p, sizeof(SpaceNode) + p->size, PROT_NONE))
+			return 1;
+		p = findProcessPage(pid, p->next);
+	}
 }
 
-int memoryAllow(void *page)
+int memoryAllow(int pid)
 {
-	SpaceNode *n = (SpaceNode *) page;
-	return mprotect(page, n->size, PROT_READ | PROT_WRITE); //allow read and write to address buffer over length pagesize
+	SpaceNode *p = findProcessPage(pid, NULL);
+	while (p != NULL) {
+		if(mprotect((void *)p, sizeof(SpaceNode) + p->size, PROT_READ | PROT_WRITE))
+			return 1;
+		p = findProcessPage(pid, p->next);
+	}
 }
+
 
 static void handler(int sig, siginfo_t *si, void *unused)
 {
@@ -643,7 +657,7 @@ static void handler(int sig, siginfo_t *si, void *unused)
 			p = findProcessPage(pid, current->next);
 		}
 
-		memoryAllow(current);
+		memoryAllow(current->pid);
 	} else {
 		sigaction(SIGSEGV, &oldSIGSEGV, NULL);
 	}
@@ -688,7 +702,8 @@ void init()
 
 
 	// set SIGSEGV handler
-	setSIGSEGV();
+	if (VIRTUAL_MEMORY)
+		setSIGSEGV();
 
 	// Create Swap file
 	static char swap[SWAP_SIZE] = "";
@@ -725,7 +740,6 @@ void *myallocate (size_t size, char *file, int line, int request)
 	default:
 		// reserve a page to a thread with id request
 		ptr = getFreePage(size, request);
-		memoryProtect(ptr);
 	}
 
 
