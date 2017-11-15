@@ -394,6 +394,21 @@ void *getFreeOSElement(size_t size)
 	}
 }
 
+void joinFreeMemory(SpaceNode *e)
+{
+	SpaceNode *last = e;
+	e = e->next;
+
+	while (e != NULL) {
+		if (last->free && e->free) {
+			last->size = last->size + e->size + sizeof(SpaceNode);
+			last->next = e->next;
+		}
+
+		e = e->next;
+	}
+}
+
 
 // page1 is page1 + page2
 void makeContiguous(SpaceNode *page1, SpaceNode *page2)
@@ -401,13 +416,19 @@ void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 	SpaceNode *contiguousPage = page1->next;
 
 	swapPages(contiguousPage, page2);
+		
 
+	size_t size = page2->size;
+	
 	void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
 	page1->size += page2->size;
 	page1->next = page2->next;
 
 	
-	memcpy(dataStart, page2->start, page2->size);
+	memmove(dataStart, page2->start, size);
+	restoreElementsPointers(page1->start, page1->size);
+	joinFreeMemory(page1->start);
+	printMemory();
 }
 
 // splits p1 into system page sized pages
@@ -446,19 +467,16 @@ void splitPages(SpaceNode *p)
 int reserveAnotherPage(SpaceNode *page)
 {
 	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), page->pid);
-	if (newPage == NULL)
+	if (newPage == NULL) {
+		printf("No free pages while reserving another page\n");
 		return 1;
+	}
 
 
 	SpaceNode *first = getFirstPage();
 	
-	if (page != first)
-		swapPages(first, page);
-
-	page = first;
-
-	
-	makeContiguous(page, newPage);
+	swapPages(first, page);
+	makeContiguous(first, newPage);
 
 	return 0;
 }
@@ -489,7 +507,6 @@ void *getFreeElement(size_t size)
 				perror("Error reserving another page: no free space");
 				return NULL;
 			}
-			
 			return getFreeElement(size);
 		}
 		return NULL;
