@@ -7,9 +7,8 @@
 void virtualMemory()
 {
 	if (VIRTUAL_MEMORY) {
-			void *pages = (void*)((*running)->pages);
+			void *pages = (*running)->pages;
 			memoryProtect(pages);
-			//splitPages(pages);
 	}
 }
 
@@ -28,12 +27,13 @@ void threadExit(void *res)
 	}
 
 	if (!empty(run)) {
+		virtualMemory();
 
 		*running = *pop(run);
 
 		timer->it_value.tv_usec = QUANTUM;
 
-		virtualMemory();
+
 		sigprocmask(SIG_SETMASK, &oldmask, NULL);
 		setcontext(&((*running)->context));
 	}
@@ -70,12 +70,13 @@ void scheduler()
 	
 	
 	if (!empty(run)) {
-
+		virtualMemory();
+		
 		my_pthread_t *nextThread = pop(run);
 		pushOrdered(0, run, running);
 		*running = *nextThread;
 
-		virtualMemory();
+
 		setcontext(&((*running)->context));
 	} else {
 		setcontext(&((*running)->context));
@@ -224,10 +225,12 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr)
 
 
 		if (!empty(run)) {
+			virtualMemory();
+			
 			ucontext_t *old = &((*running)->context);
 
 			*running = *pop(run);
-			virtualMemory();
+
 			sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
 			swapcontext(old, &((*running)->context));
@@ -274,13 +277,14 @@ int my_pthread_mutex_lock(my_pthread_mutex_t * mutex)
 		sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
 		if (m->state == 1) {
+			virtualMemory();
 			push(m->wait, running);
 			timer->it_value.tv_usec = QUANTUM;
 
 			ucontext_t *old = &((*running)->context);
 
 			*running = *pop(run);
-			virtualMemory();
+
 			sigprocmask(SIG_SETMASK, &oldmask, NULL);
 			swapcontext(old, &((*running)->context));
 		} else {
