@@ -3,17 +3,20 @@
 
 #include <stdio.h>
 #include <signal.h>
+
 #define _GNU_SOURCE
 
 #define THREADREQ 0
 #define OSREQ -1
 #define SWAPREQ -2
 
-
+#define VIRTUAL_MEMORY 1
 #define PHYSICAL_SIZE  8000000 //8MB
-#define MEMORY_START   2000000 // first 2MB are OS-reserved
-static char mem[PHYSICAL_SIZE]; // physical memory
-struct sigaction saSeg;
+
+#define SWAP_SIZE 16000000 // 16MB
+#define MEMORY_START   2097152 // first ~2MB are OS-reserved
+char *mem; // physical memory
+struct sigaction oldSIGSEGV;
 
 /* 
 Allocate memory block
@@ -42,7 +45,14 @@ still points to the same (now invalid) location.
 */ 
 void mydeallocate(void* ptr, char *file, int line, int request);
 
+
+void splitPages();
+int memoryProtect(void *pages);
+int memoryAllow();
+
+void printOSMemory();
 void printMemory();
+void printSwap();
 
 void memfun(int sig, siginfo_t *si, void *unused);
 

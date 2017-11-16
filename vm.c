@@ -2,25 +2,25 @@
 #include "vm.h"
 #include "my_pthread_t.h"
 #include <string.h>
-#include <sys/mman.h>
+
 #include <unistd.h>
+#include <sys/mman.h>
 
 #define PAGE 0
 #define ELEMENT 1
 #define MAX_NUM_THREADS 100
 
-
-static char mem[PHYSICAL_SIZE] = "";
-int inMemFun = 0;
-int PAGE_SIZE;
-int threadOrders[MAX_NUM_THREADS];
+FILE *f = NULL;
+static int swap_strategy = 0;
 
 typedef struct spaceNode {
 	unsigned pid;
 	unsigned free;
-	char *start;
+	unsigned order;
+	unsigned split;
+	void *start;
 	unsigned size;
-        int order;
+	unsigned unusedSize;
 	struct spaceNode *next;
 	struct spaceNode *prev;
 } SpaceNode;
@@ -28,7 +28,7 @@ typedef struct spaceNode {
 
 SpaceNode *getFirstPage()
 {
-	return (SpaceNode *) &mem[MEMORY_START];
+	return (SpaceNode *) (mem + MEMORY_START);
 }
 
 SpaceNode *getNextSpace(SpaceNode *old)
@@ -36,7 +36,18 @@ SpaceNode *getNextSpace(SpaceNode *old)
 	if (old == NULL)
 		return NULL;
 	else
-		return (SpaceNode *) old->next;
+		return old->next;
+}
+
+SpaceNode *findFreePage()
+{
+	SpaceNode *n = getFirstPage();
+	while (n != NULL && !(n->free)) 
+		n = getNextSpace(n);
+
+
+	return n;
+	
 }
 
 SpaceNode *findFreeSpace(SpaceNode *n, size_t size)
@@ -59,8 +70,10 @@ int initializeSpace(SpaceNode *n)
 	SpaceNode new;
 
 	new.free = 1;
+	new.split = 0;
 	new.next = new.prev = NULL;
 	new.size = n->size - sizeof(SpaceNode);
+	new.unusedSize = 0;
 	new.start = n->start + sizeof(SpaceNode);
 	new.pid = 0;
 
@@ -71,33 +84,98 @@ int initializeSpace(SpaceNode *n)
 
 int createSpace(SpaceNode *n, size_t size, int type)
 {
-	if (!n->free || n->size < size)
+	if (!n->free || ((type != PAGE) && n->size < size)) 
 		return 1;
-	
-	int restSize = n->size - size;
-	if (restSize > sizeof(SpaceNode)) {
 
-		SpaceNode new;
-		new.free = 1;
-		new.prev = n;
-		new.next = n->next;
-		new.pid = 0;
-		new.size = restSize;
 
-		char *newPos = n->start + size;
-		new.start = newPos + sizeof(SpaceNode);
-		
-		memcpy(newPos, &new, sizeof(SpaceNode));
-		
-		n->size = size;
-		n->next = (SpaceNode *) newPos;
-	} 
-		    
 
 	n->free = 0;
+	
+	if (type != PAGE) {
+		int restSize = n->size - size;
+		if (restSize > sizeof(SpaceNode)) {
+
+			SpaceNode new;
+			new.free = 1;
+			new.split = 0;
+			new.prev = n;
+			new.next = n->next;
+			new.pid = 0;
+			new.size = restSize;
+			new.unusedSize = 0;
+
+			void *newPos = n->start + size;
+			new.start = newPos + sizeof(SpaceNode);
+		
+			memcpy(newPos, &new, sizeof(SpaceNode));
+		
+			n->next = (SpaceNode *) newPos;
+		}
+		n->size = size;
+	} else
+		initializeSpace(n); // create a free node inside the page
+	
+
+	return 0;
+}
+
+int removeSpace(void *ptr, int type)
+{
+	SpaceNode *n;
 
 	if (type == PAGE)
-		initializeSpace(n); // create a free node inside the page
+		n = (SpaceNode *) ptr;
+	else
+		n = ptr - sizeof(SpaceNode);
+
+	if (n->free)
+		return 0;
+
+	SpaceNode *a = n->prev;
+	SpaceNode *b = n->next;
+
+	n->free = 1;
+	n->pid = 0;
+	n->split = 0;
+
+	if (type != PAGE) {
+		if (a == NULL && b != NULL) {
+		
+			if (b->free) {
+				n->size = b->size + sizeof(SpaceNode);
+				n->next = b->next;
+			}
+
+		
+		} else if (a != NULL && b == NULL) {
+		
+			if (a->free) {
+				a->size = n->size + sizeof(SpaceNode);
+				a->next = n->next;
+			}		
+			
+		} else if (a != NULL && b != NULL) {
+		
+				
+			if (!a->free && b->free) {
+			
+				n->size = b->size + sizeof(SpaceNode);
+				n->next = b->next;
+			
+			} else if (a->free && !b->free) {
+			
+				a->size = n->size + sizeof(SpaceNode);
+				a->next = n->next;
+			
+			} else if (a->free && b->free) {
+			
+				a->size = n->size + b->size + 2*sizeof(SpaceNode);
+				a->next = b->next;
+			
+			}
+		}
+	}
+		
 			
 	return 0;
 }
@@ -108,43 +186,346 @@ void setProcessPage(SpaceNode *n, int pid)
 	n->pid = pid;
 }
 
+void restorePointers(SpaceNode *n, size_t size, int type)
+{
+        if(size <= 0){
+	  //printf("SpaceNode has size <= 0.\n");
+	  //This can happen at the very end of the swap array. Not sure why the size ends up being zero.
+	  return;
+	}
+	size_t s = 0;
+	SpaceNode *old = NULL;
+	while (s < size) {
+		size_t offset = sizeof(SpaceNode) + n->size;
+		void *start = ((void *)n);
+		
+		SpaceNode *next = start + offset;
+		n->next = next;
+		n->prev = old;
+		n->start = start + sizeof(SpaceNode);
+
+		if (type == 0) {
+			SpaceNode *firstElement = ((void *) n) + sizeof(SpaceNode);
+			restorePointers(firstElement, n->size, 1);
+		}
+		
+
+		old = n;
+		n = next;
+		s += offset;
+	}
+	old->next = NULL;
+}
+
+void restoreElementsPointers(SpaceNode *n, size_t size)
+{
+	
+	restorePointers(n, size, 1);
+}
+
+void restorePagePointers(SpaceNode *n, size_t size)
+{
+	
+	restorePointers(n, size, 0);
+}
+
+
+//Check for pages of size zero. Only checks the first metadata though.
+int checkSwap(char *swap){
+  SpaceNode * snptr = (SpaceNode *)swap;
+  SpaceNode * metaptr;
+  while(snptr != NULL){
+    metaptr = (SpaceNode *) ( ((long)snptr) + sizeof(SpaceNode) );
+    if(snptr->size <= 0){
+      printf("checkSwap: page spacenode size <= 0. swap is at %d, snptr is at %d.\n", swap, snptr);
+      //return 1;
+      //exit(1);
+    }
+    else {
+      if(metaptr->size <= 0){
+	printf("checkswap: metadata spacenode size <= 0. snptr is at %d, metaptr is at %d.\n", snptr, metaptr);
+	//return 1;
+      }
+    }
+    snptr = snptr->next;
+  }
+  return 0;
+}
+
+
+int getSwap(char* swap)
+{
+	// Create/Open Swap file
+	f = fopen("swap", "r+b");
+	if (f == NULL) {
+		perror("Error creating swap file");
+		return 1;
+	}
+
+	//Declaring swap in the funciton would return a pointer to a local variable.
+	//static char swap[SWAP_SIZE];
+
+	
+	if (fread(swap, SWAP_SIZE, 1, f) != 1) {
+		fprintf(stderr, "Error: Failed to read swap file\n");
+		return 1;
+		}
+	//fflush(f);
+	
+	restorePagePointers((SpaceNode *) &swap[0], SWAP_SIZE);
+	fclose(f);
+	return 0;
+	
+}
+
+
+int writeSwap(char *swap)
+{
+        // printf("write checkswap:\n");
+        //checkSwap(swap);
+	//exit(1);
+	// Create/Open Swap file
+	f = fopen("swap", "w+b");
+	if (f == NULL) {
+		perror("Error creating/opening swap file");
+		return 1;
+	}
+		
+
+	if (fwrite(swap, SWAP_SIZE, 1, f) != 1) {// write swap array
+		printf("Error writing to swap file");
+		return 1;
+	}
+	fflush(f);
+	return fclose(f);
+}
+
+/*
+int movePageToSwap()
+{
+
+	SpaceNode *lru = getFirstPage();//TODO findLRUPage(getFirstPage());
+
+	// READ SWAP FILE	
+	char *swap = getSwap();
+
+
+	// Find free swap page
+	SpaceNode *freeSwapPage = findFreeSpace((SpaceNode *)&swap[0], lru->size);
+	if (freeSwapPage == NULL) {
+		fprintf(stderr, "Error: No free pages\n");
+		return 1;
+	}
+
+	lru->next = freeSwapPage->next;
+	lru->prev = freeSwapPage->prev;
+
+	memcpy(freeSwapPage, &lru, sizeof(SpaceNode) + lru->size);
+	writeSwap(swap);
+
+	// free memory LRU page
+	removeSpace(lru, PAGE);
+
+	return 0;
+}
+*/
+
+int movePageToSwap(size_t size)
+{	
+  size_t pageSize = sysconf( _SC_PAGE_SIZE);
+  printf("2 Running movePageToSwap.\n");
+  int pagesneeded = ((size + sizeof(SpaceNode) - 1) / pageSize) + 1;
+  SpaceNode *lru = NULL;//TODO findLRUPage(getFirstPage());
+  SpaceNode *extension = lru; //The last page that needs to be evicted for the required size.
+
+  switch(swap_strategy){
+  case 0: //Naive strategy (get first page)
+    lru = getFirstPage();//TODO findLRUPage(getFirstPage());
+    //Chances are, the first page will be some big block of continuous data, which I don't think we want to be moving around.
+    lru = lru->next;
+    extension = lru;
+    pagesneeded -= ((extension->size + sizeof(SpaceNode) - 1) / pageSize) + 1;
+    while(pagesneeded > 0){
+      extension = extension->next;
+      if(extension == NULL){
+	perror("Not enough space in all of mem for size_t size...\n");
+	return 1;
+      }
+      pagesneeded -= ((extension->size + sizeof(SpaceNode) - 1) / pageSize) + 1;
+    }
+    //stuff
+    break;
+  case 1: //In-memory swapping (maybe this wouldn't go here?)
+    //stuff
+    break;
+  case 2: //non-naive victim selection
+    //stuff
+    break;
+  }
+    
+  // READ SWAP FILE
+  static char swap[SWAP_SIZE];
+  if(getSwap(swap) == 1){
+    printf("Error from getswap.\n");
+  }
+  //char *swap = getSwap();
+
+
+  SpaceNode * snptr = lru;
+  while(snptr != extension->next){
+    // Find free swap page FOR EACH PAGE
+    SpaceNode *freeSwapPage = findFreeSpace((SpaceNode *)&swap[0], snptr->size);
+    if (freeSwapPage == NULL) {
+      fprintf(stderr, "Error: No free pages\n");
+      return 1;
+    }
+
+    memcpy(freeSwapPage, &snptr, sizeof(SpaceNode) + snptr->size);
+    /*  I don't know why the following two statements were in the code?
+            Originally, lru was the page that was being taken out of main memory.
+            Why would it be necessary to update its next and prev pointers? If
+	    memory is properly maintained, they should already be fine. If
+            anything, that would probably just confuse removeSpace().
+    */
+    //lru->next = freeSwapPage->next;
+    //lru->prev = freeSwapPage->prev;
+        
+    //fixInternalMetadata(snptr, freeSwapPage); //It actually shouldn't be necessary to fix pointers when we're gonna be putting it in the swap file, since it should be restored when we read it agian.
+        
+    SpaceNode * t = snptr;
+    snptr = snptr->next;
+    //free memory
+    removeSpace(t, PAGE);
+  }
+  writeSwap(swap);
+    
+  /*   Actually, since free space by default will exist in discrete pages as opposed to continuous space, this should be unnecessary.
+        Calling removeSpace when t = extension should have already sorted this out.
+    
+    while(pagesneeded < 0){    //the last page we removed was more than one page large, and we freed more space than necessary.
+        SpaceNode * temp = (SpaceNode *) ( ((long)extension) - PAGE_SIZE); //since pages needed is negative, this should move temp back.
+        temp->prev = extension->prev;
+        temp->next = extension;
+        temp->free = 1;
+        temp->start = temp + 1;
+        pagesneeded++;
+        extension = temp;
+    }
+  */
+    
+  return 0;
+}
+
+// p1 and p2 are the same size
+// swaps pages p1 and p2
+int swapPages(SpaceNode *p1, SpaceNode *p2)
+{
+	if (p1 == p2 || p1->size != p2->size) {
+		return 1;
+	}
+	size_t pageSize = p1->size + sizeof(SpaceNode);
+	char copy[pageSize];
+
+	void *start = p1->start;
+	SpaceNode *next = p1->next;
+	SpaceNode *prev = p1->prev;
+
+
+	memcpy((char *) copy, (char *) p1, pageSize);
+
+	memmove((void *) p1, (void *) p2, pageSize);
+	p1->next = next;
+	p1->prev = prev;
+	p1->start = start;
+	restoreElementsPointers(p1->start, p1->size);
+
+	start = p2->start;
+	next = p2->next;
+	prev = p2->prev;
+
+	memmove((void *) p2, (void *) copy, p2->size + sizeof(SpaceNode));
+	p2->next = next;
+	p2->prev = prev;
+	p2->start = start;
+	restoreElementsPointers(p2->start, p2->size);
+
+
+	return 0;
+}
+
+
 void *getFreePage(size_t size, unsigned pid)
 {
-	SpaceNode *n = findFreeSpace(getFirstPage(), size);
+	SpaceNode *n = findFreePage();
+	
 	
 	if (n == NULL) {
-		fprintf(stderr, "Error no free pages for process %i\n", pid);
+		printf("No free pages, moving pages to swap...\n"); //TODO DEVEL
+		if (movePageToSwap(size)) {
+			return NULL;
+		} else {
+			return getFreePage(size, pid);
+		}
 		return NULL;
+
 	} else {
+		
 		if (createSpace(n, size, PAGE)) {
 			fprintf(stderr, "Error creating space for process %i\n", pid);
 			return NULL;
 		}
 			
 		setProcessPage(n, pid);
-		return (void *)n;
+
+		if (VIRTUAL_MEMORY) {
+			SpaceNode *first = getFirstPage();
+			swapPages(first, n);
+
+
+			return (void *)first;
+		} else
+			return (void *)n;
 	}
 }
 
-SpaceNode *findProcessPage(unsigned pid)
-{
-	SpaceNode *n = getFirstPage();
-	
-	while (n != NULL && n->pid != pid) {
-		n = getNextSpace(n);
-	}
 
-	if (n != NULL && n->pid == pid)
-		return n;
-	else
-		return NULL;
+
+SpaceNode *findPage(unsigned pid, SpaceNode *start, int number)
+{
+
+	SpaceNode *n = getFirstPage();
+	if (start != NULL)
+		n = start;
+
+	int i = 0;
+	SpaceNode *res = NULL;
+	while (n != NULL && i < number) {
+	
+		while (n != NULL && n->pid != pid) {
+			n = getNextSpace(n);
+		}
+		
+		if (n != NULL && n->pid == pid) {
+			res = n;
+			n = getNextSpace(n);
+			i++;
+		} 
+			
+	}
+	return res;
+}
+
+SpaceNode *findProcessPage(unsigned pid, SpaceNode *start)
+{
+	return findPage(pid, start, 1);
 }
 
 void *getFreeOSElement(size_t size)
 {
-	SpaceNode *n = findFreeSpace((SpaceNode *)(&mem[1]), size);
+	SpaceNode *n = findFreeSpace((SpaceNode *)mem, size);
 
 	if (n == NULL) {
+		perror("Error: No free space for OS data");
 		return NULL;
 	} else {
 		
@@ -152,32 +533,165 @@ void *getFreeOSElement(size_t size)
 			perror("Error creating OS space");
 			return NULL;
 		}
-			
+
 		return (void *)n->start;
 	}
 }
 
+void joinFreeMemory(SpaceNode *e)
+{
+	SpaceNode *last = e;
+	e = e->next;
+
+	while (e != NULL) {
+		if (last->free && e->free) {
+			last->size = last->size + e->size + sizeof(SpaceNode);
+			last->next = e->next;
+		}
+
+		e = e->next;
+	}
+}
+
+
+// page1 is page1 + page2
+void makeContiguous(SpaceNode *page1, SpaceNode *page2)
+{
+	if (page1 != page2) {
+		SpaceNode *contiguousPage = page1->next;
+
+		swapPages(contiguousPage, page2);
+			
+
+		size_t size = page2->size;
+	
+		void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
+		page1->size += page2->size;
+		page1->unusedSize = sizeof(SpaceNode);
+		page1->next = page2->next;
+
+	
+		memmove(dataStart, page2->start, size);
+		restoreElementsPointers(page1->start, page1->size);
+		joinFreeMemory(page1->start);
+	}
+	      
+}
+
+// splits p1 into system page sized pages
+void splitPages()
+{
+
+	SpaceNode *p = getFirstPage();
+	size_t pageSize = sysconf( _SC_PAGE_SIZE);
+	size_t size = p->size + sizeof(SpaceNode) + p->unusedSize;
+
+
+	if (size > pageSize) {
+		void *pages = getFirstPage();
+		char copy[size];
+		memcpy(copy, p, size); // copy multiple pages "page" to copy
+
+		SpaceNode new;
+		new.free = 0;
+		new.order = 0;
+		new.split = 1;
+		new.pid = p->pid;
+		new.size = pageSize - sizeof(SpaceNode);
+		new.unusedSize = 0;
+		new.next = NULL;
+		
+	
+		void *start = pages;
+		void *copyStart = copy;
+		SpaceNode *prev = NULL;
+		int i = 0;
+		while (size >= pageSize) {
+
+			if (prev != NULL)
+				prev->next = start;
+			new.prev = prev;
+		
+			new.start =  start + sizeof(SpaceNode);
+
+			new.order += 1;
+			memmove(start, &new, sizeof(SpaceNode));
+			prev = (SpaceNode *) start;
+			start += sizeof(SpaceNode);
+
+		
+			copyStart += sizeof(SpaceNode);
+			memmove(start, copyStart, new.size);
+			start += new.size;
+			copyStart +=  new.size;
+
+			i++;
+			size -= pageSize;
+		}
+		if (prev != NULL)
+			prev->next = start;
+	}
+}
+
+void joinPages(int pid)
+{
+	//TODO
+}
+
+int reserveAnotherPage(SpaceNode *page)
+{
+	unsigned pid = page->pid;
+	
+	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), page->pid);
+	if (newPage == NULL) {
+		printf("No free pages while reserving another page\n");
+		return 1;
+	}
+
+	page = findPage(pid, NULL, 2);
+	makeContiguous(newPage, page);
+
+	return 0;
+}
+
 void *getFreeElement(size_t size)
 {
-	//unsigned pid = (*running)->id;
 	unsigned pid = 1;
+	if (running != NULL)
+		pid = (*running)->id;
 
-	SpaceNode * p = findProcessPage(pid);
+	SpaceNode * p = findProcessPage(pid, NULL);
 	if (p == NULL) {
 		perror("Cannot find process page");
 		return NULL;
 	}
+
+	if (VIRTUAL_MEMORY) {
+		swapPages(getFirstPage(), p);
+		p = getFirstPage();
+	}
+
 	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
-	
+
 	if (n == NULL) {
+		if (VIRTUAL_MEMORY) {
+			printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
+			if (reserveAnotherPage(p)) {
+				perror("Error reserving another page: no free space");
+				return NULL;
+			}
+			return getFreeElement(size);
+		}
 		return NULL;
+			
 	} else {
+	
 		
 		if (createSpace(n, size, ELEMENT)) {
 			perror("Error creating space");
 			return NULL;
 		}
-			
+				
 		return (void *)n->start;
 	}
 }
@@ -185,7 +699,7 @@ void *getFreeElement(size_t size)
 void printOSMemory()
 {
 	printf("\n\nOS Memory: \n----------------------------------\n");
-	SpaceNode *n = (SpaceNode *) &mem[1];
+	SpaceNode *n = (SpaceNode *) mem;
 	int i = 1;
 	while (n != NULL) {
 		if (n->free)
@@ -203,35 +717,37 @@ void printOSMemory()
 	printf("----------------------------------\n");
 }
 
-void printMemory()
+int printData(void * start, int type)
 {
-	printOSMemory();
-	SpaceNode *n = getFirstPage();
-	printf("Memory: \n----------------------------------\n");
-	int i = 1;
+	SpaceNode *n = (SpaceNode *)start;
+	if (type == 0) {
+		printf("Memory: \n----------------------------------\n");
+	} else {
+		printf("Swap: \n----------------------------------\n");
+	}
 	while (n != NULL) {
-		if (n->free)
-			printf("----- Free Space -----\n");
-		else {
-			printf("----- Page %i -----\n", i);
-			i++;
-		}
-		printf("Size: %i\n", n->size);
 		if (!n->free) {
-			printf("      Contents:\n");
+			printf("----- Page thread %i -----\n", n->pid);
+			printf("Page address %p     \n", n);
+			printf("Size: %i\n", n->size);
 
-			SpaceNode *s = (SpaceNode *) n->start;
-			int j = 1;
-			while (s != NULL) {
-				if (s->free)
-					printf("      ----- Free Space -----\n");
-				else {
-					printf("      ----- Element %i -----\n", j);
-					j++;
+			if (!n->split) {
+				printf("      Contents:\n");
+
+				SpaceNode *s = (SpaceNode *) n->start;
+				int j = 1;
+				while (s != NULL) {
+					if (s->free)
+						printf("      ----- Free Space -----\n");
+					else {
+						printf("      ----- Element %i -----\n", j);
+						j++;
+					}
+					printf("      Size: %i\n", s->size);
+					s = getNextSpace(s);
 				}
-				printf("      Size: %i\n", s->size);
-				s = getNextSpace(s);
-			}
+			} else
+				printf("      Page is split number %i\n", n->order);
 		     
 			
 			printf("\n");
@@ -241,304 +757,262 @@ void printMemory()
 
 	}
 	printf("----------------------------------\n\n\n");
-
+	return 0;
 }
 
-void *translatePtr(void * ptr){
-  SpaceNode * snptr = ((SpaceNode *)ptr) - 1;
-  snptr->order = threadOrders[snptr->pid];
-  threadOrders[snptr->pid] += (snptr->size / PAGE_SIZE) + 1;
-  void * virloc = (void *) (&mem[MEMORY_START] + (PAGE_SIZE * snptr->order) + sizeof(SpaceNode));
-  return virloc;
+
+void printSwap()
+{
+        static char swap[SWAP_SIZE];
+	if(getSwap(swap) == 1){
+	  printf("Printswap: error from getswap.\n");
+	}
+	printData(swap, 1);
+}
+
+void printMemory()
+{
+	printData(getFirstPage(), 0);
+}
+
+void initializeFreeSwapPages(char *swap)
+{
+	size_t pageSize = sysconf(_SC_PAGE_SIZE); 
+	SpaceNode i;
+	i.free = 1;
+	i.unusedSize = 0;
+	i.split = 0;
+	i.next = i.prev = NULL;
+	i.size = pageSize - sizeof(SpaceNode);
+	i.pid = 0;
+
+	SpaceNode *prev = NULL;
+	size_t freeSpace = SWAP_SIZE;
+
+	while (freeSpace >= pageSize) {
+		i.start = swap + sizeof(SpaceNode);
+		i.prev = prev;
+
+		//I also initialize start's stuff, hopefully to what it's supposed to be.
+		SpaceNode meta;
+		meta.free = 1;
+		meta.unusedSize = 0; //Maybe?
+		meta.split = 0;
+		meta.next = meta.prev = NULL;
+		meta.size = pageSize - (2 * sizeof(SpaceNode));
+		memcpy( (swap + sizeof(SpaceNode)), &meta, sizeof(SpaceNode) );
+
+		memcpy(swap, &i, sizeof(SpaceNode));
+
+		if (prev != NULL) {
+			prev->next = (SpaceNode *)swap;
+		}
+
+		prev = (SpaceNode *)swap;
+		freeSpace = freeSpace - pageSize;
+		
+		swap += pageSize;
+	}
+	
+
+}
+ 
+void initializeFreePages()
+{
+	size_t pageSize = sysconf(_SC_PAGE_SIZE); 
+	SpaceNode i;
+	i.free = 1;
+	i.unusedSize = 0;
+	i.split = 0;
+	i.next = i.prev = NULL;
+	i.size = pageSize - sizeof(SpaceNode);
+	i.pid = 0;
+
+	SpaceNode *prev = NULL;
+	size_t freeSpace = PHYSICAL_SIZE - MEMORY_START;
+	void *start = mem + MEMORY_START;
+
+	while (freeSpace >= pageSize) {
+		i.start = start + sizeof(SpaceNode);
+		i.prev = prev;
+
+		memcpy(start, &i, sizeof(SpaceNode));
+
+		if (prev != NULL) {
+			prev->next = (SpaceNode *)start;
+		}
+
+		prev = (SpaceNode *)start;
+		freeSpace = freeSpace - pageSize;
+		
+		start += pageSize;
+	}
+}
+
+int memoryProtect(void *page)
+{
+	if(mprotect(page, sysconf(_SC_PAGE_SIZE), PROT_NONE))
+		return 1;
+}
+
+int memoryAllow()
+{
+	size_t pageSize = sysconf(_SC_PAGE_SIZE);
+	mprotect(mem + MEMORY_START, pageSize, PROT_READ | PROT_WRITE);
+	SpaceNode *first = getFirstPage();
+	if (first->size > pageSize - sizeof(SpaceNode)) {
+		mprotect(mem + MEMORY_START, first->size, PROT_READ | PROT_WRITE);
+	}
+}
+
+
+static void handler(int sig, siginfo_t *si, void *unused)
+{
+	//printf("Got SIGSEGV at address: 0x%lx\n",(long) si->si_addr);
+
+	long addr = (long) si->si_addr;
+
+	long first = (long) mem + MEMORY_START;
+	long last = (long) mem + PHYSICAL_SIZE;
+	
+	if (addr >= first && addr < last) {
+
+		memoryAllow();
+		splitPages();
+		// move all running thread's pages to the beginning and make them contiguous
+
+		unsigned pid = (*running)->id;
+
+		SpaceNode *p = findProcessPage(pid, NULL);
+		if (p != NULL) {
+			swapPages(getFirstPage(), p);
+			
+			SpaceNode *current = getFirstPage();
+			p = findProcessPage(pid, current->next);
+			while (p != NULL) {
+				makeContiguous(current, p);
+				p = findProcessPage(pid, current->next);
+			}
+		}
+
+		
+	} else {
+		sigaction(SIGSEGV, &oldSIGSEGV, NULL);
+	}
+}
+
+void setSIGSEGV()
+{
+	struct sigaction sa;
+	sa.sa_flags = SA_SIGINFO;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_sigaction = handler;
+		
+	if (sigaction(SIGSEGV, &sa, &oldSIGSEGV) == -1) {
+			
+		printf("Fatal error setting up signal handler\n");
+		exit(EXIT_FAILURE);    //explode!
+	}
+}
+
+void init()
+{
+	if (posix_memalign((void **)&mem, sysconf(_SC_PAGE_SIZE), PHYSICAL_SIZE)) {
+		perror("Can't reserve space for main memory");
+		exit(1);
+	}
+		
+	// System reserved space
+	SpaceNode new;
+	new.free = 1;
+	new.next = new.prev = NULL;
+	new.size = MEMORY_START - sizeof(SpaceNode) - 1;
+	new.start = mem + sizeof(SpaceNode);
+	new.pid = 0;
+
+	memcpy(mem, &new, sizeof(SpaceNode));
+
+
+
+	// Free space for pages
+	initializeFreePages();
+
+
+	// set SIGSEGV handler
+	if (VIRTUAL_MEMORY)
+		setSIGSEGV();
+
+	// Create Swap file
+	static char swap[SWAP_SIZE] = "";
+	new.free = 1;
+	new.next = new.prev = NULL;
+	new.size = SWAP_SIZE - sizeof(SpaceNode);
+	new.start = swap + sizeof(SpaceNode);
+	new.pid = 0;
+	memcpy(swap, &new, sizeof(SpaceNode));
+	initializeFreeSwapPages(swap);
+	writeSwap(swap);
+	//printSwap();
+	//exit(1);
+		
 }
 
 void *myallocate (size_t size, char *file, int line, int request)
 {
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
-	if (mem[0] == 0) { //first run
-		mem[0] = 1;
-
-		//SOME OTHER INIT STUFF I NEED TO DO:
-		PAGE_SIZE = sysconf(_SC_PAGE_SIZE);
-		int i;
-		for(i = 0; i < MAX_NUM_THREADS; i++){
-		  threadOrders[i] = 0;
-		}
-
-		//saSeg.sa_flags = SA_SIGINFO;
-		//sigemptyset(&saSeg.sa_mask);
-		//saSeg.sa_sigaction = memfun;
-		//sigaction(SIGSEGV, &saSeg, NULL);
-
-		// System reserved space
-		SpaceNode new;
-		new.free = 1;
-		new.next = new.prev = NULL;
-		new.size = MEMORY_START - sizeof(SpaceNode) - 1;
-		new.start = &mem[1] + sizeof(SpaceNode);
-		new.pid = 0;
-
-		memcpy(&mem[1], &new, sizeof(SpaceNode));
-
-
-
-		// Free space for pages
-		
-		new.free = 1;
-		new.next = new.prev = NULL;
-		new.size = PHYSICAL_SIZE - MEMORY_START - sizeof(SpaceNode);
-		new.start = &mem[MEMORY_START] + sizeof(SpaceNode);
-		new.pid = 0;
-
-		memcpy(&mem[MEMORY_START], &new, sizeof(SpaceNode));
+	if (mem == NULL) { //first run
+		init();
+	
 	}
 
 	void *ptr = NULL;
 	switch (request) {
-		case THREADREQ:
-			// allocate
-			ptr = getFreeElement(size);
-			//ptr = translatePtr(ptr);
-			break;
-	        case OSREQ:
-			// allocate memory to OS data
-			ptr = getFreeOSElement(size);
-			break;
-	        case SWAPREQ:
-		        //basically, allocate without doing a memprotect or pointer translation.
-		        ptr = getFreeElement(size);
-			break;
-	        default:
-			// reserve a page
-			ptr = getFreePage(size, request);
+	case THREADREQ:
+		// allocate inside a thread page
+		ptr = getFreeElement(size);
+		break;
+	case OSREQ:
+		// allocate memory to OS data
+		ptr = getFreeOSElement(size);
+		break;
+	default:
+		// reserve a page to a thread with id request
+		ptr = getFreePage(size, request);
+
 	}
+
+	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 	return ptr;
-}
-
-int removeSpace(void *ptr, int type)
-{
-	SpaceNode *n;
-
-	if (type == PAGE)
-		n = (SpaceNode *) ptr;
-	else
-		n = ptr - sizeof(SpaceNode);
-
-	if (n->free)
-		return 0;
-
-	SpaceNode *a = n->prev;
-	SpaceNode *b = n->next;
-	if (a == NULL && b == NULL) {
-
-		n->free = 1;
-		
-	} else if (a == NULL && b != NULL) {
-		
-		n->free = 1;
-		if (b->free) {
-			n->size = b->size + sizeof(SpaceNode);
-			n->next = b->next;
-		}
-
-		
-	} else if (a != NULL && b == NULL) {
-		
-		if (a->free) {
-			a->size = n->size + sizeof(SpaceNode);
-			a->next = n->next;
-		} else
-			n->free = 1;
-		
-			
-	} else if (a != NULL && b != NULL) {
-		
-		if (!a->free && !b->free) {
-			
-			n->free = 1;
-			
-		} else if (!a->free && b->free) {
-			
-			n->size = b->size + sizeof(SpaceNode);
-			n->next = b->next;
-			
-		} else if (a->free && !b->free) {
-			
-			a->size = n->size + sizeof(SpaceNode);
-			a->next = n->next;
-			
-		} else if (a->free && b->free) {
-			
-			a->size = n->size + b->size + 2*sizeof(SpaceNode);
-			a->next = b->next;
-			
-		}
-	}
-			
-	return 0;
 }
 
 void mydeallocate(void* ptr, char *file, int line, int request)
 {
-	switch (request) {
-		case THREADREQ:
-			// deallocate
-			removeSpace(ptr, ELEMENT);
-			break;
-		default:
-			// deallocate a page
-			removeSpace(ptr, PAGE);
+	sigset_t oldmask;
+	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
-			
+	
+	switch (request) {
+	case THREADREQ:
+		// deallocate
+		removeSpace(ptr, ELEMENT);
+		break;
+	case OSREQ:
+		// deallocate memory from OS data
+		removeSpace(ptr, ELEMENT);
+		break;
+	default:
+		// deallocate a page
+		removeSpace(ptr, PAGE);
+
 	}
+	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
 int getPageSize(SpaceNode * ptr){
   //In case size doesn't have what I expect I can calculate the size I want later. For now I hope it's good.
   return ptr->size;
 
-}
-
-void memfun(int sig, siginfo_t *si, void *unused){
-  //First, let's prevent any interrupts from being made.
-  sigset_t oldmask;
-  sigprocmask(SIG_BLOCK, &sa.sa_mask, &oldmask);
-
-  //check to make sure that memfun itself didn't raise a seg fault.
-  if(inMemFun == 1){
-    perror("memfun caused a segfault\n");
-    exit(1);
-  }
-  inMemFun = 1;
-
-  //Now check to make sure that the addr is actually within mem
-  if(&mem[MEMORY_START] > si->si_addr || &mem[sizeof(mem) - 1] < si->si_addr){
-    perror("Actual segmentation fault. Addr is outside of valid mem area.");
-    exit(1);
-  }
-
-  //un-mprotect all the memory so we can mess with stuff. I'm not sure about the runtime of this so it may run slow, but it's easy to understand.
-  mprotect(&mem[MEMORY_START], (&mem[sizeof(mem) - 1]), PROT_READ | PROT_WRITE);
-
-  //Next, let's find out what page needs to be loaded.
-  if(running == NULL){
-    perror("running was null.\n");
-    exit(1);
-  }
-  int currid = (*running)->id;
-  if(mem[0] == 0){
-    perror("Memory not initialized.\n");
-    exit(1);
-  }
-  SpaceNode * pageptr = ((SpaceNode *)&mem[MEMORY_START]); //initializing a ptr to the beginning of mem
-  int pgid = (int)(((char *)si->si_addr) - &mem[MEMORY_START]); //number of bytes from the beginning of mem
-  pgid = pgid / PAGE_SIZE; //pgid now holds the inex of the expected page that user asked for.
-  while(pageptr != NULL){
-    if(pageptr->free == 0 && pageptr->pid == currid){
-      if(pageptr->order <= pgid && pageptr->order + (getPageSize(pageptr) / PAGE_SIZE) >= pgid){
-	printf("Found needed page.\n");
-	break;
-      }
-    }
-    pageptr = pageptr->next;
-  } 
-  //Now, let's move whatever is at the addresses of mem that pageptr needs to be at.
-
-  SpaceNode * snptr = ((SpaceNode *)&mem[MEMORY_START]); //initializing another ptr
-  SpaceNode * snprev;
-  int pg = 0;
-  while(pg <= pgid && snptr != NULL){
-    pg += (getPageSize(snptr) / PAGE_SIZE) + 1;
-    snprev = snptr;
-    snptr = snptr->next;
-  }
-  int pagesneeded = (getPageSize(pageptr) / PAGE_SIZE) + 1;
-  //if(snprev->free == 1){ //The page wants to be in free memory of unknown size.
-  int snprev_pg_index = (int) ((((char *)snprev) - &mem[MEMORY_START])) / PAGE_SIZE;
-  pagesneeded -= (pgid - snprev_pg_index) + 1;
-  if(pagesneeded > 0 && snprev->next == NULL){
-    printf("need more pages but we're at the end of mem...\n");
-  }
-  if(snprev->free == 0){
-    SpaceNode * temp = (SpaceNode *)myallocate(getPageSize(snprev), __FILE__, __LINE__, -2);
-    if(temp == NULL){
-      perror("Couldn't find enough space to swapp.\n");
-      exit(1);
-    }
-    memcpy(temp, snprev->start, snprev->size);
-    temp--;
-    temp->pid = snprev->pid;
-    mydeallocate(snprev->start, __FILE__, __LINE__, -2);
-  }
-  //}
-  while(pagesneeded > 0){ //start moving stuff stuff starting at snptr
-    pagesneeded -= (getPageSize(snptr) / PAGE_SIZE) + 1;
-    if(snptr->free == 1){
-      snptr = snptr->next;
-    }
-    else {
-      SpaceNode * temp = (SpaceNode *)myallocate(getPageSize(snptr), __FILE__, __LINE__, -2);
-      if(temp == NULL){
-	perror("Couldn't find enough space to swap.\n");
-	exit(1);
-      }
-      memcpy(temp, snprev->start,snprev->size);
-      temp--;
-      temp->pid = snptr->pid;
-      temp = snptr;
-      snptr = snptr->next;
-      mydeallocate(temp->start, __FILE__, __LINE__, -2);
-    }
-    if(snptr == NULL && pagesneeded > 0){ //change for swap file functionality!
-      perror("Not enough room to shift stuff around.\n");
-      exit(1);
-    }
-  }
-
-  //Now we need to get the address where we'll be plopping the node down.
-  SpaceNode * newloc = (SpaceNode *) (((int)&mem[MEMORY_START]) + (PAGE_SIZE * pgid));
-
-  if (pagesneeded < 0){ //This means that the last page we removed was larger than we needed space for. Now we need to add in free space pagenode.
-    printf("Running freeloc stuff.\n");
-    SpaceNode * freeloc = (SpaceNode *) (((int)newloc) + sizeof(SpaceNode) + getPageSize(newloc));
-    freeloc->start = freeloc + 1;
-    if(snptr == NULL){
-      freeloc->size = (PHYSICAL_SIZE + &mem[MEMORY_START]) - ((int)freeloc->start);
-    } else {
-      freeloc->size = ((int)snptr) - ((int)freeloc->start);
-    }
-    freeloc->free = 1;
-    freeloc->next = snptr;
-    freeloc->prev = newloc;
-    newloc->next = freeloc;
-  }
-
-  //Will we be putting down memory in an arbitrary region of free space? possibly.
-  if(newloc == snprev){
-    //Great, where we want to put the page already lines up with the beginning of some free space.
-  } else {
-    //We need to do some pointer gynmnastics first.
-    snprev->next = newloc;
-    snprev->size = ((int)newloc) - ((int)snprev->start);
-    newloc->prev = snprev;
-  }
-  memcpy((newloc + 1), (pageptr + 1), pageptr->size);
-  newloc->pid = pageptr->pid;
-  if(pagesneeded == 0){  //otherwise, newloc's next is already sorted out in a previous section
-    newloc->next = snptr;
-    if(snptr!= NULL){
-      snptr->prev = newloc;
-    }
-  }
-
-  mprotect(&mem[MEMORY_START],(int)(((char *)newloc) - &mem[MEMORY_START]), PROT_NONE);
-  if(newloc->next != NULL){
-    mprotect(newloc->next,(&mem[sizeof(mem) - 1]) - (int)newloc->next, PROT_READ | PROT_WRITE);
-  }
-  inMemFun = 1;
-  //Still need to do memprotects and translation of addr.
-
-  //Lastly, re-enable interrupts.
-  sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 

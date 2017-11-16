@@ -22,16 +22,18 @@ void *inc_x(void *x_void_ptr)
 int main()
 {
 
-	int x = 0, y = 0;
+	int *x = (int *)malloc(sizeof(int));
+	*x = 0;
+	int y = 0;
 
 	/* show the initial values of x and y */
-	printf("x: %d, y: %d\n", x, y);
+	printf("x: %d, y: %d\n", *x, y);
 
 	/* this variable is our reference to the second thread */
 	pthread_t inc_x_thread;
 
 	/* create a second thread which executes inc_x(&x) */
-	if(pthread_create(&inc_x_thread, NULL, inc_x, &x)) {
+	if(pthread_create(&inc_x_thread, NULL, inc_x, x)) {
 
 		fprintf(stderr, "Error creating thread\n");
 		return 1;
@@ -55,7 +57,7 @@ int main()
 	int z = *(int *)p;
 
 	/* show the results - x is now 100 thanks to the second thread */
-	printf("x: %d, y: %d, z: %d\n", x, y, z);
+	printf("x: %d, y: %d, z: %d\n", *x, y, z);
 
 	return 0;
 
