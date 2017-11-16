@@ -54,8 +54,6 @@ void printOSMemory();
 void printMemory();
 void printSwap();
 
-void memfun(int sig, siginfo_t *si, void *unused);
-
 
 #ifdef THREADREQ
 #define malloc(x) myallocate(x, __FILE__, __LINE__, THREADREQ)
