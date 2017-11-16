@@ -8,11 +8,11 @@ void *test(void *ptr)
 	printf("Pointer: %p\n", x);
 
 	int i;
-	//pthread_mutex_lock(&m);
+	pthread_mutex_lock(&m);
 	for (i = 0; i < 10000000; i++) {
 		*x += 1;
 	}
-	//pthread_mutex_unlock(&m);
+	pthread_mutex_unlock(&m);
 
 		
 	return NULL;

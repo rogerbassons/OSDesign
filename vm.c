@@ -411,7 +411,6 @@ void *getFreePage(size_t size, unsigned pid)
 			SpaceNode *first = getFirstPage();
 			swapPages(first, n);
 
-
 			return (void *)first;
 		} else
 			return (void *)n;
@@ -627,16 +626,16 @@ void splitPages()
 int reserveAnotherPage(SpaceNode *page)
 {
 	unsigned pid = page->pid;
-	
-	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), page->pid);
+	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), pid);
 	if (newPage == NULL) {
 		printf("No free pages while reserving another page\n");
 		return 1;
 	}
+	newPage->order = page->order += 1;
 
-	page = findPage(pid, NULL, 2);
-	makeContiguous(newPage, page);
-
+	SpaceNode *first = findPage(pid, NULL, 1);
+	SpaceNode *second = findPage(pid, NULL, 2);
+	makeContiguous(first, second);
 	return 0;
 }
 
@@ -667,12 +666,14 @@ void *tryGetFreeElement(size_t size, int try)
 
 	if (n == NULL) {
 		if (VIRTUAL_MEMORY) {
-			//printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
+			if (size > PHYSICAL_SIZE - MEMORY_START)
+				printf("Unable to reserve bigger than physical memory size\n");
 			if (reserveAnotherPage(p)) {
 				perror("Error reserving another page: no free space");
 				return NULL;
 			}
 			return tryGetFreeElement(size,1);
+			
 		}
 		return NULL;
 			
@@ -683,7 +684,6 @@ void *tryGetFreeElement(size_t size, int try)
 			perror("Error creating space");
 			return NULL;
 		}
-						
 		return (void *)n->start;
 	}
 }
