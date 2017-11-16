@@ -25,7 +25,6 @@ typedef struct spaceNode {
 	struct spaceNode *prev;
 } SpaceNode;
 
-
 SpaceNode *getFirstPage()
 {
 	return (SpaceNode *) (mem + MEMORY_START);
@@ -45,20 +44,18 @@ SpaceNode *findFreePage()
 	while (n != NULL && !(n->free)) 
 		n = getNextSpace(n);
 
-
 	return n;
 	
 }
 
 SpaceNode *findFreeSpace(SpaceNode *n, size_t size)
 {
-	while (n != NULL && !(n->free)) 
-		n = getNextSpace(n);
-
-	if (n != NULL && n->free && n->size < size)
-		n = getNextSpace(n);
-		
-
+	int found = 0;
+	while (n != NULL && !found) {
+		found = n->free && n->size >= size;
+		if (!found)
+			n = getNextSpace(n);
+	}
 	return n;
 	
 }
@@ -71,6 +68,7 @@ int initializeSpace(SpaceNode *n)
 
 	new.free = 1;
 	new.split = 0;
+	new.order = 1;
 	new.next = new.prev = NULL;
 	new.size = n->size - sizeof(SpaceNode);
 	new.unusedSize = 0;
@@ -88,21 +86,23 @@ int createSpace(SpaceNode *n, size_t size, int type)
 		return 1;
 
 
-
 	n->free = 0;
 	
 	if (type != PAGE) {
 		int restSize = n->size - size;
+		n->size = size;
 		if (restSize > sizeof(SpaceNode)) {
-
+			
 			SpaceNode new;
 			new.free = 1;
 			new.split = 0;
+			new.order = 1;
 			new.prev = n;
 			new.next = n->next;
 			new.pid = 0;
-			new.size = restSize;
 			new.unusedSize = 0;
+			new.size = restSize;
+
 
 			void *newPos = n->start + size;
 			new.start = newPos + sizeof(SpaceNode);
@@ -110,11 +110,22 @@ int createSpace(SpaceNode *n, size_t size, int type)
 			memcpy(newPos, &new, sizeof(SpaceNode));
 		
 			n->next = (SpaceNode *) newPos;
+		} else if (restSize > 0) {
+			SpaceNode *p = n->prev;
+			SpaceNode *page = NULL;
+			while (p != NULL) {
+				page = p;
+				p = p->prev;
+			}
+			if (page != NULL) {
+				page = ((void *) page) - sizeof(SpaceNode);
+				page->unusedSize += restSize;
+			}
 		}
-		n->size = size;
+
+		
 	} else
 		initializeSpace(n); // create a free node inside the page
-	
 
 	return 0;
 }
@@ -191,7 +202,7 @@ void restorePointers(SpaceNode *n, size_t size, int type)
 	
 	size_t s = 0;
 	SpaceNode *old = NULL;
-	while (s < size) {
+	while (s < size && size - s > sizeof(SpaceNode)) {
 		size_t offset = sizeof(SpaceNode) + n->size;
 		void *start = ((void *)n);
 		
@@ -202,7 +213,7 @@ void restorePointers(SpaceNode *n, size_t size, int type)
 
 		if (type == 0) {
 			SpaceNode *firstElement = ((void *) n) + sizeof(SpaceNode);
-			restorePointers(firstElement, n->size, 1);
+			restorePointers(firstElement, n->size - n->unusedSize, 1);
 		}
 		
 
@@ -299,10 +310,12 @@ int movePageToSwap()
 // swaps pages p1 and p2
 int swapPages(SpaceNode *p1, SpaceNode *p2)
 {
-	if (p1 == p2 || p1->size != p2->size) {
+	size_t p1size = p1->size + p1->unusedSize;
+	size_t p2size = p2->size + p2->unusedSize;
+	if (p1 == p2 || p1size != p2size) {
 		return 1;
 	}
-	size_t pageSize = p1->size + sizeof(SpaceNode);
+	size_t pageSize = p1size + sizeof(SpaceNode);
 	char copy[pageSize];
 
 	void *start = p1->start;
@@ -316,17 +329,17 @@ int swapPages(SpaceNode *p1, SpaceNode *p2)
 	p1->next = next;
 	p1->prev = prev;
 	p1->start = start;
-	restoreElementsPointers(p1->start, p1->size);
+	restoreElementsPointers(p1->start, p1size);
 
 	start = p2->start;
 	next = p2->next;
 	prev = p2->prev;
 
-	memmove((void *) p2, (void *) copy, p2->size + sizeof(SpaceNode));
+	memmove((void *) p2, (void *) copy, p2size + sizeof(SpaceNode));
 	p2->next = next;
 	p2->prev = prev;
 	p2->start = start;
-	restoreElementsPointers(p2->start, p2->size);
+	restoreElementsPointers(p2->start, p2size);
 
 
 	return 0;
@@ -367,6 +380,23 @@ void *getFreePage(size_t size, unsigned pid)
 	}
 }
 
+
+SpaceNode *findSplitPage(unsigned pid, int number)
+{
+
+	SpaceNode *n = getFirstPage();
+
+
+	int found = 0;
+	while (n != NULL && !found) {
+
+		found = n->pid == pid && n->order == number;
+		if (!found)
+			n = getNextSpace(n);
+			
+	}
+	return n;
+}
 
 
 SpaceNode *findPage(unsigned pid, SpaceNode *start, int number)
@@ -432,170 +462,6 @@ void joinFreeMemory(SpaceNode *e)
 	}
 }
 
-
-// page1 is page1 + page2
-void makeContiguous(SpaceNode *page1, SpaceNode *page2)
-{
-	if (page1 != page2) {
-		SpaceNode *contiguousPage = page1->next;
-
-		swapPages(contiguousPage, page2);
-			
-
-		size_t size = page2->size;
-	
-		void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
-		page1->size += page2->size;
-		page1->unusedSize = sizeof(SpaceNode);
-		page1->next = page2->next;
-
-	
-		memmove(dataStart, page2->start, size);
-		restoreElementsPointers(page1->start, page1->size);
-		joinFreeMemory(page1->start);
-	}
-	      
-}
-
-// splits p1 into system page sized pages
-void splitPages()
-{
-
-	SpaceNode *p = getFirstPage();
-	size_t pageSize = sysconf( _SC_PAGE_SIZE);
-	size_t size = p->size + sizeof(SpaceNode) + p->unusedSize;
-
-
-	if (size > pageSize) {
-		void *pages = getFirstPage();
-		char copy[size];
-		memcpy(copy, p, size); // copy multiple pages "page" to copy
-
-		SpaceNode new;
-		new.free = 0;
-		new.order = 0;
-		new.split = 1;
-		new.pid = p->pid;
-		new.size = pageSize - sizeof(SpaceNode);
-		new.unusedSize = 0;
-		new.next = NULL;
-		
-	
-		void *start = pages;
-		void *copyStart = copy;
-		SpaceNode *prev = NULL;
-		int i = 0;
-		while (size >= pageSize) {
-
-			if (prev != NULL)
-				prev->next = start;
-			new.prev = prev;
-		
-			new.start =  start + sizeof(SpaceNode);
-
-			new.order += 1;
-			memmove(start, &new, sizeof(SpaceNode));
-			prev = (SpaceNode *) start;
-			start += sizeof(SpaceNode);
-
-		
-			copyStart += sizeof(SpaceNode);
-			memmove(start, copyStart, new.size);
-			start += new.size;
-			copyStart +=  new.size;
-
-			i++;
-			size -= pageSize;
-		}
-		if (prev != NULL)
-			prev->next = start;
-	}
-}
-
-void joinPages(int pid)
-{
-	//TODO
-}
-
-int reserveAnotherPage(SpaceNode *page)
-{
-	unsigned pid = page->pid;
-	
-	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), page->pid);
-	if (newPage == NULL) {
-		printf("No free pages while reserving another page\n");
-		return 1;
-	}
-
-	page = findPage(pid, NULL, 2);
-	makeContiguous(newPage, page);
-
-	return 0;
-}
-
-void *getFreeElement(size_t size)
-{
-	unsigned pid = 1;
-	if (running != NULL)
-		pid = (*running)->id;
-
-	SpaceNode * p = findProcessPage(pid, NULL);
-	if (p == NULL) {
-		perror("Cannot find process page");
-		return NULL;
-	}
-
-	if (VIRTUAL_MEMORY) {
-		swapPages(getFirstPage(), p);
-		p = getFirstPage();
-	}
-
-	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
-
-	if (n == NULL) {
-		if (VIRTUAL_MEMORY) {
-			printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
-			if (reserveAnotherPage(p)) {
-				perror("Error reserving another page: no free space");
-				return NULL;
-			}
-			return getFreeElement(size);
-		}
-		return NULL;
-			
-	} else {
-	
-		
-		if (createSpace(n, size, ELEMENT)) {
-			perror("Error creating space");
-			return NULL;
-		}
-				
-		return (void *)n->start;
-	}
-}
-
-void printOSMemory()
-{
-	printf("\n\nOS Memory: \n----------------------------------\n");
-	SpaceNode *n = (SpaceNode *) mem;
-	int i = 1;
-	while (n != NULL) {
-		if (n->free)
-			printf("----- Free Space -----\n");
-		else {
-			printf("----- OS Element %i -----\n", i);
-			i++;
-		}
-		printf("Size: %i\n", n->size);
-		
-		n = getNextSpace(n);	
-
-
-	}
-	printf("----------------------------------\n");
-}
-
 int printData(void * start, int type)
 {
 	SpaceNode *n = (SpaceNode *)start;
@@ -609,6 +475,7 @@ int printData(void * start, int type)
 			printf("----- Page thread %i -----\n", n->pid);
 			printf("Page address %p     \n", n);
 			printf("Size: %i\n", n->size);
+			printf("Unused size: %i\n", n->unusedSize);
 
 			if (!n->split) {
 				printf("      Contents:\n");
@@ -639,6 +506,175 @@ int printData(void * start, int type)
 	return 0;
 }
 
+// page1 is page1 + page2
+void makeContiguous(SpaceNode *page1, SpaceNode *page2)
+{
+	if (page1 != page2) {
+		SpaceNode *contiguousPage = page1->next;
+
+		swapPages(contiguousPage, page2);
+
+
+		void *dataStart = ((void *)page1) + sizeof(SpaceNode) + page1->size;
+		page1->split = 0;
+		page1->size += page2->size;
+		page1->unusedSize += sizeof(SpaceNode);
+		page1->next = page2->next;
+
+
+		memmove(dataStart, page2->start, page2->size);
+		
+		restoreElementsPointers(page1->start, page1->size - page1->unusedSize);
+		joinFreeMemory(page1->start);
+	}
+	      
+}
+
+// splits first page into system page sized pages
+void splitPages()
+{
+
+	SpaceNode *p = getFirstPage();
+	size_t pageSize = sysconf( _SC_PAGE_SIZE);
+	size_t size = p->size + p->unusedSize;
+
+
+	if (size > pageSize) {
+		void *pages = getFirstPage();
+		char copy[size - p->unusedSize];
+		memcpy(copy, p, size - p->unusedSize); // copy multiple pages "page" to copy
+
+		SpaceNode new;
+		new.free = 0;
+
+		new.split = 1;
+		new.pid = p->pid;
+		new.size = pageSize - sizeof(SpaceNode);
+		new.unusedSize = 0;
+		new.next = NULL;
+		new.order = 0;
+		
+	
+		void *start = pages;
+		void *copyStart = copy + sizeof(SpaceNode);
+		SpaceNode *prev = NULL;
+
+		while (size >= pageSize) {
+
+			if (prev != NULL)
+				prev->next = start;
+			new.prev = prev;
+		
+			new.start =  start + sizeof(SpaceNode);
+
+			new.order += 1;
+			memcpy(start, &new, sizeof(SpaceNode));
+			prev = (SpaceNode *) start;
+			start += sizeof(SpaceNode);
+
+		
+			memmove(start, copyStart, new.size);
+			start += new.size;
+			copyStart +=  new.size;
+
+
+			size -= new.size;
+		}
+		if (prev != NULL)
+			prev->next = start;
+	}
+}
+
+
+int reserveAnotherPage(SpaceNode *page)
+{
+	unsigned pid = page->pid;
+	
+	SpaceNode *newPage = getFreePage(sysconf( _SC_PAGE_SIZE), page->pid);
+	if (newPage == NULL) {
+		printf("No free pages while reserving another page\n");
+		return 1;
+	}
+
+	page = findPage(pid, NULL, 2);
+	makeContiguous(newPage, page);
+
+	return 0;
+}
+
+
+
+void *tryGetFreeElement(size_t size, int try)
+{
+	unsigned pid = 1;
+	if (running != NULL)
+		pid = (*running)->id;
+
+	SpaceNode * p = findProcessPage(pid, NULL);
+	if (p == NULL) {
+		perror("Cannot find process page");
+		return NULL;
+	}
+	if (VIRTUAL_MEMORY) {
+		swapPages(getFirstPage(), p);
+		p = getFirstPage();
+	}
+
+	size_t findSize = size;
+	if (try > 0)
+		findSize += sizeof(SpaceNode);
+	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), findSize);
+
+	if (n == NULL) {
+		if (VIRTUAL_MEMORY) {
+			//printf("No free space inside the thread's page, reserving another one\n"); //devel TODO
+			if (reserveAnotherPage(p)) {
+				perror("Error reserving another page: no free space");
+				return NULL;
+			}
+			return tryGetFreeElement(size,1);
+		}
+		return NULL;
+			
+	} else {
+
+		
+		if (createSpace(n, size, ELEMENT)) {
+			perror("Error creating space");
+			return NULL;
+		}
+						
+		return (void *)n->start;
+	}
+}
+
+void *getFreeElement(size_t size) {
+	return tryGetFreeElement(size, 0);
+}
+
+void printOSMemory()
+{
+	printf("\n\nOS Memory: \n----------------------------------\n");
+	SpaceNode *n = (SpaceNode *) mem;
+	int i = 1;
+	while (n != NULL) {
+		if (n->free)
+			printf("----- Free Space -----\n");
+		else {
+			printf("----- OS Element %i -----\n", i);
+			i++;
+		}
+		printf("Size: %i\n", n->size);
+		
+		n = getNextSpace(n);	
+
+
+	}
+	printf("----------------------------------\n");
+}
+
+
+
 void printSwap()
 {
 	printData(getSwap(), 1);
@@ -656,6 +692,7 @@ void initializeFreePages()
 	SpaceNode i;
 	i.free = 1;
 	i.unusedSize = 0;
+	i.order = 1;
 	i.split = 0;
 	i.next = i.prev = NULL;
 	i.size = pageSize - sizeof(SpaceNode);
@@ -699,6 +736,35 @@ int memoryAllow()
 	}
 }
 
+void loadRunningProcessPages() {
+
+	unsigned pid = (*running)->id;
+
+	SpaceNode *p = findProcessPage(pid, NULL);
+	if (p != NULL) {
+
+
+		if (p->split) {
+
+			p = findSplitPage(pid, 1);
+			swapPages(getFirstPage(), p);
+
+			SpaceNode *next = p->next;
+			p = findSplitPage(pid, 2);
+
+			int i = 3;
+			while (p != NULL) {
+
+				makeContiguous(getFirstPage(), p);
+				p = findSplitPage(pid, i);
+				i++;
+			}
+		} else
+			swapPages(getFirstPage(), p);
+			
+	}
+}
+
 
 static void handler(int sig, siginfo_t *si, void *unused)
 {
@@ -713,21 +779,8 @@ static void handler(int sig, siginfo_t *si, void *unused)
 
 		memoryAllow();
 		splitPages();
-		// move all running thread's pages to the beginning and make them contiguous
 
-		unsigned pid = (*running)->id;
-
-		SpaceNode *p = findProcessPage(pid, NULL);
-		if (p != NULL) {
-			swapPages(getFirstPage(), p);
-			
-			SpaceNode *current = getFirstPage();
-			p = findProcessPage(pid, current->next);
-			while (p != NULL) {
-				makeContiguous(current, p);
-				p = findProcessPage(pid, current->next);
-			}
-		}
+		loadRunningProcessPages();
 
 		
 	} else {
@@ -763,6 +816,7 @@ void init()
 	new.size = MEMORY_START - sizeof(SpaceNode) - 1;
 	new.start = mem + sizeof(SpaceNode);
 	new.pid = 0;
+	new.order = 1;
 
 	memcpy(mem, &new, sizeof(SpaceNode));
 
