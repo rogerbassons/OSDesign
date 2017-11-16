@@ -106,6 +106,7 @@ void initOS();
 #define pthread_mutex_lock my_pthread_mutex_lock
 #define pthread_mutex_unlock my_pthread_mutex_unlock
 #define pthread_mutex_destroy my_pthread_mutex_destroy
+#define pthread_yield my_pthread_yield
 #endif
 
 #endif
