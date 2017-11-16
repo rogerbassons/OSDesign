@@ -6,6 +6,7 @@
 
 void virtualMemory()
 {
+	updateReference();
 	if (VIRTUAL_MEMORY) {
 			void *pages = (*running)->pages;
 			memoryProtect(pages);

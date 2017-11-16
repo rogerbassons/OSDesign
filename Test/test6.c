@@ -23,6 +23,7 @@ void makeContiguous(SpaceNode *page1, SpaceNode *page2);
 void swapPages(SpaceNode *, SpaceNode*);
 SpaceNode *findProcessPage(unsigned pid, SpaceNode *start);
 SpaceNode *findSplitPage(unsigned pid, int number);
+int splitPages();
 
 void loadRunningProcessPages();
 
