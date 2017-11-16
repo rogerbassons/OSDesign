@@ -10,6 +10,8 @@
 #define ELEMENT 1
 
 FILE *f = NULL;
+int shared_init = 0;
+static char shmem[4096 * 4] = ""; //hard coded page size. 
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -32,7 +34,7 @@ SpaceNode *getFirstPage()
 
 SpaceNode *getLastPage()
 {
-	return (SpaceNode *) (mem + MEMORY_START + PHYSICAL_SIZE - pageSize);
+	return (SpaceNode *) (sharedMemoryStart - pageSize);
 }
 
 
@@ -489,9 +491,9 @@ SpaceNode *findProcessPage(unsigned pid, SpaceNode *start)
 	return findPage(pid, start, 1);
 }
 
-void *getFreeOSElement(size_t size)
+void *getFreeElementFrom(void *memory, size_t size)
 {
-	SpaceNode *n = findFreeSpace((SpaceNode *)mem, size);
+	SpaceNode *n = findFreeSpace((SpaceNode *)memory, size);
 
 	if (n == NULL) {
 		perror("Error: No free space for OS data");
@@ -711,6 +713,9 @@ void *tryGetFreeElement(size_t size, int try)
 }
 
 void *getFreeElement(size_t size) {
+	if (running == NULL) {
+		initOS();
+	}
 	return tryGetFreeElement(size, 0);
 }
 
@@ -836,7 +841,7 @@ static void handler(int sig, siginfo_t *si, void *unused)
 	long addr = (long) si->si_addr;
 
 	long first = (long) mem + MEMORY_START;
-	long last = (long) mem + PHYSICAL_SIZE;
+	long last = (long) sharedMemoryStart;
 	
 	if (addr >= first && addr < last) {
 
@@ -873,6 +878,11 @@ void init()
 	}
 
 	pageSize = sysconf( _SC_PAGE_SIZE);
+
+	// Last 4 pages are shared
+	size_t sharedSize = (pageSize * 4);
+	sharedMemoryStart = mem + PHYSICAL_SIZE - sharedSize;
+	initializeFreePages(sharedMemoryStart, sharedSize);
 		
 	// System reserved space
 	SpaceNode new;
@@ -885,12 +895,8 @@ void init()
 
 	memcpy(mem, &new, sizeof(SpaceNode));
 
-
-
 	// Free space for pages
-	initializeFreePages(mem + MEMORY_START, PHYSICAL_SIZE - MEMORY_START);
-
-
+	initializeFreePages(mem + MEMORY_START, PHYSICAL_SIZE - sharedSize - MEMORY_START);
 
 	// set SIGSEGV handler
 	if (VIRTUAL_MEMORY)
@@ -906,9 +912,7 @@ void init()
 	memcpy(swap, &new, sizeof(SpaceNode));
 	initializeFreePages(swap, SWAP_SIZE);
 	writeSwap(swap);
-	//printSwap();
-	//exit(1);
-		
+
 }
 
 void *myallocate (size_t size, char *file, int line, int request)
@@ -923,13 +927,17 @@ void *myallocate (size_t size, char *file, int line, int request)
 
 	void *ptr = NULL;
 	switch (request) {
+	case SHALLOC:
+		// allocate inside a thread page
+		ptr = getFreeElementFrom(sharedMemoryStart, size);
+		break;
 	case THREADREQ:
 		// allocate inside a thread page
 		ptr = getFreeElement(size);
 		break;
 	case OSREQ:
 		// allocate memory to OS data
-		ptr = getFreeOSElement(size);
+		ptr = getFreeElementFrom(mem, size);
 		break;
 	default:
 		// reserve a page to a thread with id request
@@ -946,7 +954,6 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	sigset_t oldmask;
 	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
-	
 	switch (request) {
 	case THREADREQ:
 		// deallocate
@@ -964,9 +971,7 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
-int getPageSize(SpaceNode * ptr){
-	//In case size doesn't have what I expect I can calculate the size I want later. For now I hope it's good.
-	return ptr->size;
 
+void *shalloc (size_t size){
+	return myallocate(size, "shalloc", 0, SHALLOC);
 }
-

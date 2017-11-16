@@ -9,12 +9,14 @@
 #define THREADREQ 0
 #define OSREQ -1
 #define SWAPREQ -2
+#define SHALLOC -3
 
 #define VIRTUAL_MEMORY 1
 #define PHYSICAL_SIZE  8000000 //8MB
 #define SWAP_SIZE 16000000 // 16MB
 #define SWAP_STRATEGY 0 // 0 -> naive, 1 -> 2n chance
 #define MEMORY_START   2097152 // first ~2MB are OS-reserved
+void *sharedMemoryStart;
 char *mem; // physical memory
 struct sigaction oldSIGSEGV;
 size_t pageSize;
@@ -46,7 +48,10 @@ still points to the same (now invalid) location.
 */ 
 void mydeallocate(void* ptr, char *file, int line, int request);
 
+void* shalloc(size_t size);
+
 void updateReference();
+
 int memoryProtect(void *pages);
 int memoryAllow();
 

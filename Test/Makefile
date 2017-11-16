@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -g -w
 
-all:: test test2 test3 test4 test5 test6
+all:: test test2 test3 test4 test5 test6 test7
 
 test: 
 	$(CC) $(CFLAGS) -pthread -o test test.c -L../ -lmy_pthread
@@ -21,5 +21,8 @@ test5:
 test6: 
 	$(CC) $(CFLAGS) -pthread -o test6  test6.c -L../ -lmy_pthread
 
+test7: 
+	$(CC) $(CFLAGS) -pthread -o test7  test7.c -L../ -lmy_pthread
+
 clean:
-	rm -rf test test2 test3 test4 test5 test6 *.o ./record/
+	rm -rf test test2 test3 test4 test5 test6 test7 *.o ./record/

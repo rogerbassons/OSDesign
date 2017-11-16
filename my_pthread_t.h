@@ -94,7 +94,7 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex);
 
 int getPriority(my_pthread_t *t);
 unsigned int getTimeCreated(my_pthread_t *t);
-
+void initOS();
 
 #ifdef USE_MY_PTHREAD
 #define pthread_t my_pthread_t

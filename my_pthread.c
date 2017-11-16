@@ -150,6 +150,32 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 	}
 }
 
+void initOS()
+{
+	run = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
+
+	nextId = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
+	*nextId = 1;
+
+	mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
+	mainThread->id = *nextId;
+	mainThread->priority = 0;
+	mainThread->born = (unsigned long)time(NULL);
+	mainThread->function = NULL;
+	mainThread->arg = NULL;
+	mainThread->finished = 0;
+	mainThread->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, *nextId);
+	(*nextId)++;
+
+	running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
+	*running = mainThread;
+
+	nSchedulings = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
+	*nSchedulings = 0;
+
+	setMyScheduler();
+}
+
 int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr, 
 		void *(*function) (void *), void *arg)
 {
@@ -157,28 +183,7 @@ int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr,
 		return 1;
 
 	if (run == NULL) {
-		run = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
-
-		nextId = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
-		*nextId = 1;
-
-		mainThread = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
-		mainThread->id = *nextId;
-		mainThread->priority = 0;
-		mainThread->born = (unsigned long)time(NULL);
-		mainThread->function = NULL;
-		mainThread->arg = NULL;
-		mainThread->finished = 0;
-		mainThread->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, *nextId);
-		(*nextId)++;
-
-		running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
-		*running = mainThread;
-
-		nSchedulings = (unsigned *) myallocate(sizeof(unsigned), "my_pthread.c", 0, OSREQ);
-		*nSchedulings = 0;
-
-		setMyScheduler();
+		initOS();
 	}
 
 
