@@ -2,6 +2,7 @@
 #define MY_VM_H
 
 #include <stdio.h>
+#include <signal.h>
 
 #define _GNU_SOURCE
 
