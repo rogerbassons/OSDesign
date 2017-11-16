@@ -24,7 +24,7 @@ int thread_num;
 int* counter;
 pthread_t *thread;
 
-int *mem = NULL;
+int *memory = NULL;
 
 int sum = 0;
 
@@ -50,11 +50,11 @@ void *external_calculate(void* arg) {
 		}
 
 		for (i = 0; i < itr; ++i) {
-			// read 16B from nth record into memory from mem[n*4]
+			// read 16B from nth record into memoryory from memory[n*4]
 			for (j = 0; j < 4; ++j) {
-				fscanf(f, "%d", &mem[k*4 + j]);
+				fscanf(f, "%d", &memory[k*4 + j]);
 				pthread_mutex_lock(&mutex);
-				sum += mem[k*4 + j];
+				sum += memory[k*4 + j];
 				pthread_mutex_unlock(&mutex);
 			}
 		}
@@ -70,7 +70,7 @@ void verify() {
 	char path[20] = "./record/";
 
 	sum = 0;
-	memset(mem, 0, RAM_SIZE);
+	memset(memory, 0, RAM_SIZE);
 
 	for (k = 0; k < 10; ++k) {
 		strcpy(path, "./record/");
@@ -85,10 +85,10 @@ void verify() {
 		}
 
 		for (i = 0; i < itr; ++i) {
-			// read 16B from nth record into memory from mem[n*4]
+			// read 16B from nth record into memoryory from memory[n*4]
 			for (j = 0; j < 4; ++j) {
-				fscanf(f, "%d\n", &mem[k*4 + j]);
-				sum += mem[k*4 + j];
+				fscanf(f, "%d\n", &memory[k*4 + j]);
+				sum += memory[k*4 + j];
 			}
 		}
 		fclose(f);
@@ -122,8 +122,8 @@ int main(int argc, char **argv) {
 	// initialize pthread_t
 	thread = (pthread_t*)malloc(thread_num*sizeof(pthread_t));
 
-	mem = (int*)malloc(RAM_SIZE);
-	memset(mem, 0, RAM_SIZE);
+	memory = (int*)malloc(RAM_SIZE);
+	memset(memory, 0, RAM_SIZE);
 
 	pthread_mutex_init(&mutex, NULL);
 
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
 	// feel free to verify your answer here:
 	verify();
 
-	free(mem);
+	free(memory);
 	free(thread);
 	free(counter);
 
