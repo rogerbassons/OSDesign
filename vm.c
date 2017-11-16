@@ -2,16 +2,16 @@
 #include "vm.h"
 #include "my_pthread_t.h"
 #include <string.h>
+
 #include <unistd.h>
 #include <sys/mman.h>
 
-
 #define PAGE 0
 #define ELEMENT 1
-
-
+#define MAX_NUM_THREADS 100
 
 FILE *f = NULL;
+static int swap_strategy = 0;
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -199,7 +199,11 @@ void setProcessPage(SpaceNode *n, int pid)
 
 void restorePointers(SpaceNode *n, size_t size, int type)
 {
-	
+        if(size <= 0){
+	  //printf("SpaceNode has size <= 0.\n");
+	  //This can happen at the very end of the swap array. Not sure why the size ends up being zero.
+	  return;
+	}
 	size_t s = 0;
 	SpaceNode *old = NULL;
 	while (s < size && size - s > sizeof(SpaceNode)) {
@@ -237,32 +241,62 @@ void restorePagePointers(SpaceNode *n, size_t size)
 }
 
 
+//Check for pages of size zero. Only checks the first metadata though.
+int checkSwap(char *swap){
+  SpaceNode * snptr = (SpaceNode *)swap;
+  SpaceNode * metaptr;
+  while(snptr != NULL){
+    metaptr = (SpaceNode *) ( ((long)snptr) + sizeof(SpaceNode) );
+    if(snptr->size <= 0){
+      printf("checkSwap: page spacenode size <= 0. swap is at %d, snptr is at %d.\n", swap, snptr);
+      //return 1;
+      //exit(1);
+    }
+    else {
+      if(metaptr->size <= 0){
+	printf("checkswap: metadata spacenode size <= 0. snptr is at %d, metaptr is at %d.\n", snptr, metaptr);
+	//return 1;
+      }
+    }
+    snptr = snptr->next;
+  }
+  return 0;
+}
 
-char *getSwap()
+
+int getSwap(char* swap)
 {
 	// Create/Open Swap file
-	FILE *f = fopen("swap", "r+b");
+	f = fopen("swap", "r+b");
 	if (f == NULL) {
 		perror("Error creating swap file");
-		return NULL;
+		return 1;
 	}
 
-	static char swap[SWAP_SIZE];
+	//Declaring swap in the funciton would return a pointer to a local variable.
+	//static char swap[SWAP_SIZE];
 
-	if (fread(swap, sizeof(swap), 1, f) != 1) {
+	
+	if (fread(swap, SWAP_SIZE, 1, f) != 1) {
 		fprintf(stderr, "Error: Failed to read swap file\n");
-		return NULL;
-	}
+		return 1;
+		}
+	//fflush(f);
+	
 	restorePagePointers((SpaceNode *) &swap[0], SWAP_SIZE);
 	fclose(f);
-	return swap;
+	return 0;
 	
 }
 
+
 int writeSwap(char *swap)
 {
+        // printf("write checkswap:\n");
+        //checkSwap(swap);
+	//exit(1);
 	// Create/Open Swap file
-	FILE *f = fopen("swap", "w+b");
+	f = fopen("swap", "w+b");
 	if (f == NULL) {
 		perror("Error creating/opening swap file");
 		return 1;
@@ -273,11 +307,11 @@ int writeSwap(char *swap)
 		printf("Error writing to swap file");
 		return 1;
 	}
-
+	fflush(f);
 	return fclose(f);
 }
 
-
+/*
 int movePageToSwap()
 {
 
@@ -304,6 +338,93 @@ int movePageToSwap()
 	removeSpace(lru, PAGE);
 
 	return 0;
+}
+*/
+
+int movePageToSwap(size_t size)
+{	
+  size_t pageSize = sysconf( _SC_PAGE_SIZE);
+  printf("2 Running movePageToSwap.\n");
+  int pagesneeded = ((size + sizeof(SpaceNode) - 1) / pageSize) + 1;
+  SpaceNode *lru = NULL;//TODO findLRUPage(getFirstPage());
+  SpaceNode *extension = lru; //The last page that needs to be evicted for the required size.
+
+  switch(swap_strategy){
+  case 0: //Naive strategy (get first page)
+    lru = getFirstPage();//TODO findLRUPage(getFirstPage());
+    //Chances are, the first page will be some big block of continuous data, which I don't think we want to be moving around.
+    lru = lru->next;
+    extension = lru;
+    pagesneeded -= ((extension->size + sizeof(SpaceNode) - 1) / pageSize) + 1;
+    while(pagesneeded > 0){
+      extension = extension->next;
+      if(extension == NULL){
+	perror("Not enough space in all of mem for size_t size...\n");
+	return 1;
+      }
+      pagesneeded -= ((extension->size + sizeof(SpaceNode) - 1) / pageSize) + 1;
+    }
+    //stuff
+    break;
+  case 1: //In-memory swapping (maybe this wouldn't go here?)
+    //stuff
+    break;
+  case 2: //non-naive victim selection
+    //stuff
+    break;
+  }
+    
+  // READ SWAP FILE
+  static char swap[SWAP_SIZE];
+  if(getSwap(swap) == 1){
+    printf("Error from getswap.\n");
+  }
+  //char *swap = getSwap();
+
+
+  SpaceNode * snptr = lru;
+  while(snptr != extension->next){
+    // Find free swap page FOR EACH PAGE
+    SpaceNode *freeSwapPage = findFreeSpace((SpaceNode *)&swap[0], snptr->size);
+    if (freeSwapPage == NULL) {
+      fprintf(stderr, "Error: No free pages\n");
+      return 1;
+    }
+
+    memcpy(freeSwapPage, &snptr, sizeof(SpaceNode) + snptr->size);
+    /*  I don't know why the following two statements were in the code?
+            Originally, lru was the page that was being taken out of main memory.
+            Why would it be necessary to update its next and prev pointers? If
+	    memory is properly maintained, they should already be fine. If
+            anything, that would probably just confuse removeSpace().
+    */
+    //lru->next = freeSwapPage->next;
+    //lru->prev = freeSwapPage->prev;
+        
+    //fixInternalMetadata(snptr, freeSwapPage); //It actually shouldn't be necessary to fix pointers when we're gonna be putting it in the swap file, since it should be restored when we read it agian.
+        
+    SpaceNode * t = snptr;
+    snptr = snptr->next;
+    //free memory
+    removeSpace(t, PAGE);
+  }
+  writeSwap(swap);
+    
+  /*   Actually, since free space by default will exist in discrete pages as opposed to continuous space, this should be unnecessary.
+        Calling removeSpace when t = extension should have already sorted this out.
+    
+    while(pagesneeded < 0){    //the last page we removed was more than one page large, and we freed more space than necessary.
+        SpaceNode * temp = (SpaceNode *) ( ((long)extension) - PAGE_SIZE); //since pages needed is negative, this should move temp back.
+        temp->prev = extension->prev;
+        temp->next = extension;
+        temp->free = 1;
+        temp->start = temp + 1;
+        pagesneeded++;
+        extension = temp;
+    }
+  */
+    
+  return 0;
 }
 
 // p1 and p2 are the same size
@@ -353,7 +474,7 @@ void *getFreePage(size_t size, unsigned pid)
 	
 	if (n == NULL) {
 		printf("No free pages, moving pages to swap...\n"); //TODO DEVEL
-		if (movePageToSwap()) {
+		if (movePageToSwap(size)) {
 			return NULL;
 		} else {
 			return getFreePage(size, pid);
@@ -675,14 +796,60 @@ void printOSMemory()
 
 
 
+
 void printSwap()
 {
-	printData(getSwap(), 1);
+        static char swap[SWAP_SIZE];
+	if(getSwap(swap) == 1){
+	  printf("Printswap: error from getswap.\n");
+	}
+	printData(swap, 1);
 }
 
 void printMemory()
 {
 	printData(getFirstPage(), 0);
+}
+
+void initializeFreeSwapPages(char *swap)
+{
+	size_t pageSize = sysconf(_SC_PAGE_SIZE); 
+	SpaceNode i;
+	i.free = 1;
+	i.unusedSize = 0;
+	i.split = 0;
+	i.next = i.prev = NULL;
+	i.size = pageSize - sizeof(SpaceNode);
+	i.pid = 0;
+
+	SpaceNode *prev = NULL;
+	size_t freeSpace = SWAP_SIZE;
+
+	while (freeSpace >= pageSize) {
+		i.start = swap + sizeof(SpaceNode);
+		i.prev = prev;
+
+		//I also initialize start's stuff, hopefully to what it's supposed to be.
+		SpaceNode meta;
+		meta.free = 1;
+		meta.unusedSize = 0; //Maybe?
+		meta.split = 0;
+		meta.next = meta.prev = NULL;
+		meta.size = pageSize - (2 * sizeof(SpaceNode));
+		memcpy( (swap + sizeof(SpaceNode)), &meta, sizeof(SpaceNode) );
+
+		memcpy(swap, &i, sizeof(SpaceNode));
+
+		if (prev != NULL) {
+			prev->next = (SpaceNode *)swap;
+		}
+
+		prev = (SpaceNode *)swap;
+		freeSpace = freeSpace - pageSize;
+		
+		swap += pageSize;
+	}
+	
 
 }
  
@@ -718,7 +885,6 @@ void initializeFreePages()
 		start += pageSize;
 	}
 }
-
 
 int memoryProtect(void *page)
 {
@@ -838,7 +1004,10 @@ void init()
 	new.start = swap + sizeof(SpaceNode);
 	new.pid = 0;
 	memcpy(swap, &new, sizeof(SpaceNode));
+	initializeFreeSwapPages(swap);
 	writeSwap(swap);
+	//printSwap();
+	//exit(1);
 		
 }
 
@@ -895,5 +1064,9 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
+int getPageSize(SpaceNode * ptr){
+  //In case size doesn't have what I expect I can calculate the size I want later. For now I hope it's good.
+  return ptr->size;
 
+}
 

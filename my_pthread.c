@@ -12,6 +12,7 @@ void virtualMemory()
 	}
 }
 
+
 void threadExit(void *res)
 {
 	sigset_t oldmask;
@@ -67,8 +68,6 @@ void scheduler()
 
 	(*running)->priority += 1;
 
-	
-	
 	if (!empty(run)) {
 		virtualMemory();
 		

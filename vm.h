@@ -2,6 +2,7 @@
 #define MY_VM_H
 
 #include <stdio.h>
+#include <signal.h>
 
 #define _GNU_SOURCE
 
@@ -11,6 +12,7 @@
 
 #define VIRTUAL_MEMORY 1
 #define PHYSICAL_SIZE  8000000 //8MB
+
 #define SWAP_SIZE 16000000 // 16MB
 #define MEMORY_START   2097152 // first ~2MB are OS-reserved
 char *mem; // physical memory
@@ -51,6 +53,8 @@ int memoryAllow();
 void printOSMemory();
 void printMemory();
 void printSwap();
+
+void memfun(int sig, siginfo_t *si, void *unused);
 
 
 #ifdef THREADREQ

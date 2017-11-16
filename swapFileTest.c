@@ -8,10 +8,10 @@ int main()
 	while(current < maxMainMemory - 4000) {
 		char *n = myallocate(4000, NULL, 0, i);
 		i++;
-		current += 4000;
+		current += 4096;
 	}
-	//char *n = myallocate(3960, NULL, 0, i);
-	//n = myallocate(3960, NULL, 0, i);
+	char *n = myallocate(3960, NULL, 0, i);
+	n = myallocate(3960, NULL, 0, i);
 
 	//printMemory();
 	printSwap();
