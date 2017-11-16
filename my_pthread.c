@@ -43,7 +43,7 @@ void threadExit(void *res)
 
 }
 
-void *threadRun(my_pthread_t t)
+void threadRun(my_pthread_t t)
 {
 	void **res = t->function(t->arg);
 	sigset_t oldmask;
@@ -97,7 +97,7 @@ void interrupt(int signum)
 	swapcontext(&(*running)->context, &signalContext);
 }
 
-int setMyScheduler()
+void setMyScheduler()
 {
 	*nSchedulings = 0;
 
@@ -148,6 +148,7 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 		return 0;
 
 	}
+	return 1;
 }
 
 void initOS()
@@ -262,6 +263,7 @@ int my_pthread_mutex_init(my_pthread_mutex_t * mutex,
 	(*mutex) = l;
 	l->state = 0;
 	l->wait = (LinkedList *) myallocate(sizeof(LinkedList), "my_pthread.c", 0, OSREQ);
+	return 0;
 }
 
 int testAndSet(my_pthread_mutex_t * m)
@@ -296,6 +298,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t * mutex)
 			sigprocmask(SIG_SETMASK, &oldmask, NULL);
 		}
 	}
+	return 0;
 }
 
 // Unlocks a given mutex. 
@@ -312,7 +315,8 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t * mutex)
 	m->state = 0;
 
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
-
+	
+	return 0;
 }
 
 //Destroys a given mutex. Mutex should be unlocked before doing so.
@@ -328,6 +332,8 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t * mutex)
 	free(m->wait);
 	free(m);
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+	return 0;
 }
 
 

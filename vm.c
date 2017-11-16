@@ -11,7 +11,6 @@
 
 FILE *f = NULL;
 int shared_init = 0;
-static char shmem[4096 * 4] = ""; //hard coded page size. 
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -258,29 +257,6 @@ void restorePagePointers(SpaceNode *n, size_t size)
 {
 	
 	restorePointers(n, size, 0);
-}
-
-
-//Check for pages of size zero. Only checks the first metadata though.
-int checkSwap(char *swap){
-	SpaceNode * snptr = (SpaceNode *)swap;
-	SpaceNode * metaptr;
-	while(snptr != NULL){
-		metaptr = (SpaceNode *) ( ((long)snptr) + sizeof(SpaceNode) );
-		if(snptr->size <= 0){
-			printf("checkSwap: page spacenode size <= 0. swap is at %d, snptr is at %d.\n", swap, snptr);
-			//return 1;
-			//exit(1);
-		}
-		else {
-			if(metaptr->size <= 0){
-				printf("checkswap: metadata spacenode size <= 0. snptr is at %d, metaptr is at %d.\n", snptr, metaptr);
-				//return 1;
-			}
-		}
-		snptr = snptr->next;
-	}
-	return 0;
 }
 
 
@@ -677,7 +653,7 @@ void *tryGetFreeElement(size_t size, int try)
 		perror("Cannot find process page");
 		return NULL;
 	}
-	p->reference == 1;
+	p->reference = 1;
 		
 	if (VIRTUAL_MEMORY) {
 		swapPages(getFirstPage(), p);
@@ -792,6 +768,7 @@ int memoryProtect(void *page)
 {
 	if(mprotect(page, sysconf(_SC_PAGE_SIZE), PROT_NONE))
 		return 1;
+	return 0;
 }
 
 int memoryAllow()
@@ -801,6 +778,7 @@ int memoryAllow()
 	if (first->size > pageSize - sizeof(SpaceNode)) {
 		mprotect(mem + MEMORY_START, first->size, PROT_READ | PROT_WRITE);
 	}
+	return 0;
 }
 
 void loadRunningProcessPages() {
@@ -816,7 +794,6 @@ void loadRunningProcessPages() {
 			p = findSplitPage(pid, 1);
 			swapPages(getFirstPage(), p);
 
-			SpaceNode *next = p->next;
 			p = findSplitPage(pid, 2);
 
 			int i = 3;
@@ -829,7 +806,7 @@ void loadRunningProcessPages() {
 		} else
 			swapPages(getFirstPage(), p);
 
-		getFirstPage()->reference == 1;
+		getFirstPage()->reference = 1;
 	}
 }
 
