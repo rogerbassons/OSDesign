@@ -12,6 +12,9 @@
 
 FILE *f = NULL;
 static int swap_strategy = 0;
+int PAGE_SIZE;
+int shared_init = 0;
+static char shmem[4096 * 4] = ""; //hard coded page size. 
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -1046,6 +1049,11 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	sigset_t oldmask;
 	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
 
+	//first check if it's a location in shmem.
+	if( (long)ptr > (long)&shmem[0] && (long)ptr < (long)&shmem[0] + (4 * PAGE_SIZE) ){
+	  sh_free(ptr);
+	  return;
+	}
 	
 	switch (request) {
 	case THREADREQ:
@@ -1064,9 +1072,180 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
-int getPageSize(SpaceNode * ptr){
-	//In case size doesn't have what I expect I can calculate the size I want later. For now I hope it's good.
-	return ptr->size;
-
+void initshmem(){
+  shared_init = 1;
+  PAGE_SIZE = sysconf(_SC_PAGE_SIZE);
+  SpaceNode * ptr = (SpaceNode *)&shmem[0];
+  int i;
+  for(i = 0; i < 4; i++){
+    ptr->free = 1;
+    ptr->start = (char *)(ptr + 1);
+    SpaceNode * metaptr = (SpaceNode *)ptr->start;
+    metaptr->free = 1;
+    metaptr->start = (metaptr + 1);
+    metaptr->size = PAGE_SIZE - (2 * sizeof(SpaceNode));
+    ptr->size = PAGE_SIZE - sizeof(SpaceNode);
+    if(i == 0){
+      ptr->prev = NULL;
+    }
+    else{
+      ptr->prev = (SpaceNode *)(((long)ptr) - PAGE_SIZE);
+    }
+    if(i == 3){
+      ptr->next = NULL;
+    }
+    else{
+      ptr->next = (SpaceNode *)(((long)ptr) + PAGE_SIZE);
+    }
+    ptr = ptr->next;
+  }
 }
 
+SpaceNode * sh_get_free_page(size_t size){
+  printf("sh_get_free_page running.\n");
+  SpaceNode * ptr = (SpaceNode *)&shmem[0];
+  if(size > PAGE_SIZE - sizeof(SpaceNode)){ //Special case where the entire size won't fit in one page.
+    int pagesneeded = ((size+sizeof(SpaceNode) - 1) / PAGE_SIZE) + 1;
+    int temp = pagesneeded;
+    int i;
+    SpaceNode * freeptr = ptr;
+    for(i = 0; i < 4; i++){
+      if(ptr == NULL){
+	return NULL;
+      }
+      if(ptr->free == 1){
+        pagesneeded--;
+      } else {
+        pagesneeded = temp;
+        freeptr = ptr->next;
+      }
+      if(pagesneeded == 0){
+        break;
+      }
+      ptr = ptr->next;
+    }
+    if(pagesneeded != 0){
+      return NULL;
+    }
+    //now freeptr has a page with enough pages after it
+    freeptr->next = (SpaceNode *) (((long)freeptr) + (PAGE_SIZE * temp));
+    freeptr->next->prev = freeptr;
+    freeptr->size = (int) ((PAGE_SIZE * temp) - sizeof(SpaceNode));
+    freeptr->free = 0;
+    SpaceNode * freemeta = (SpaceNode *)freeptr->start;
+    freemeta->free = 0;
+    freemeta->size = freeptr->size - sizeof(SpaceNode);
+    return freemeta->start;
+  }
+  else{ //Find space in an existing page somewhere
+    while(ptr != NULL){
+      SpaceNode * metaptr = (SpaceNode *)ptr->start;
+      while(metaptr != NULL){
+        if(metaptr->free == 0 || metaptr->size < size){
+          metaptr = metaptr->next;
+        }
+        else { //We have found a good metadata spacenode with enough free space to hold our data.
+          metaptr->free = 0;
+          if(metaptr->next == NULL){ //have to make a new metadata spacenode.
+            if( ((long)(metaptr->start) ) + size + sizeof(SpaceNode) < ((long)ptr) + PAGE_SIZE){ //We have enough room to create a new metadatanode.
+              SpaceNode * new = (SpaceNode *) (((long)(metaptr->start)) + size);
+              new->free = 1;
+              new->start = (char *)(new + 1);
+              new->prev = metaptr;
+              new->next = NULL;
+              metaptr->next = new;
+              metaptr->size = (int)((long)new) - ((long)metaptr->start);
+              new->size = (int)(((long)ptr) + PAGE_SIZE) - ((long)new->start);
+            }
+            else{ //Not enough room to create a new spacenode metadata. It should hopefully already be the right size.
+              //metaptr->size = (int)(((long)ptr) + PAGE_SIZE) - ((long)metaptr->start);
+            }
+          }
+          //I won't bother creating a spacenode in the middle of free space here if there are more nodes after metaptr.
+          return metaptr->start;
+        }
+      }
+      ptr = ptr->next;
+    }
+    return NULL;
+  }
+  return NULL; //shouldn't ever get here
+}
+
+void *shalloc (size_t size){
+  printf("shalloc running. \n");
+  //First, prevent interrupts... which might actually not be necessary? But I'd prefer it.
+  if(sigismember(&sa->sa_mask, SIGSEGV) == 1){
+    printf("It seems that sigsegv is being blocked.\n");
+  }
+  sigset_t oldmask;
+  sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
+
+  if(shared_init == 0){
+    initshmem();
+    printf("Size of shmem: %d  Size of page: %d  Size of spacenode: %d\n", sizeof(shmem), sysconf(_SC_PAGE_SIZE), sizeof(SpaceNode));
+  }
+  SpaceNode * ptr = sh_get_free_page(size);
+  return ptr;
+
+  sigprocmask(SIG_SETMASK, &oldmask, NULL);
+}
+
+void sh_free(void * addrptr){
+  printf("sh_free running!\n");
+  //First, find the page that contains the addr
+  SpaceNode * snptr = (SpaceNode *)&shmem[0];
+  while( ((long)snptr) + snptr->size + sizeof(SpaceNode) < (long)addrptr){
+    snptr = snptr->next;
+    if(snptr == NULL){
+      perror("ShallocFree Error: addrptr not found.");
+      return;
+    }
+  }
+  //Now that we've got the right page, we need to find the right metadata. Same thing, basicall.
+  SpaceNode * metaptr = snptr->start;
+  while( ((long)metaptr) + metaptr->size + sizeof(SpaceNode) < (long)addrptr){
+    metaptr = metaptr->next;
+  }
+
+  //bit of pointer gymnastics and updating free.
+
+  if(metaptr->next != NULL){
+    if(metaptr->next->free == 1){
+      metaptr->size += metaptr->next->size + sizeof(SpaceNode);
+      metaptr->next = metaptr->next->next;
+    }
+  }
+  if(metaptr->prev != NULL){
+    if(metaptr->prev->free == 1){
+      metaptr->prev->size += metaptr->size + sizeof(SpaceNode);
+      metaptr->prev->next = metaptr->next;
+    }
+  }
+  SpaceNode * temp = (SpaceNode *)snptr->start;
+  if(temp->free == 1 && temp->next == NULL){
+    printf("shalloc: completely freed a page.\n");
+    snptr->free = 1;
+    int pagesused = ((snptr->size + sizeof(SpaceNode) - 1)/PAGE_SIZE) + 1;
+    while(pagesused > 1){
+      pagesused--;
+      SpaceNode * temp2 = (SpaceNode *) (((long)snptr) + PAGE_SIZE);
+      snptr->next = temp2;
+      snptr->size = PAGE_SIZE - sizeof(SpaceNode);
+      temp2->prev = snptr;
+      temp2->size = PAGE_SIZE -  sizeof(SpaceNode);
+      temp2->free = 1;
+      temp2->next = (SpaceNode *) (((long)temp2) + PAGE_SIZE);
+      temp2->start = (char *)(temp2 + 1);
+      SpaceNode * temp3 = (SpaceNode *)(temp2->start);
+      temp3->free = 1;
+      temp3->start = (char *)(temp3 + 1);
+      temp3->prev = NULL;
+      temp3->next = NULL;
+      temp3->size = PAGE_SIZE - (2 * sizeof(SpaceNode));
+      snptr = snptr->next;
+    }
+  }
+  metaptr->free = 1;
+  return;
+}

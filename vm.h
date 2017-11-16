@@ -45,7 +45,7 @@ still points to the same (now invalid) location.
 */ 
 void mydeallocate(void* ptr, char *file, int line, int request);
 
-
+void sh_free(void *addrptr);
 void splitPages();
 int memoryProtect(void *pages);
 int memoryAllow();
