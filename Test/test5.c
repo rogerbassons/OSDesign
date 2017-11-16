@@ -5,10 +5,13 @@
 void *test(void *p)
 {
 
-	int size = sizeof(char) * 5000;
+	int max = 4000;
+	
+	int size = sizeof(char) * max;
 	char *buff = malloc(size);
 
 
+	printMemory();
 	strcpy(buff, "a");
 	int i;
 	for (i = 0; i < size-2; i++) {

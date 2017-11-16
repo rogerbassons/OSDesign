@@ -40,14 +40,25 @@ int main()
 	running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
 	*running = mainThread;
 
-	void *x = myallocate(11900, "my_pthread.c", 0, 0);
+	void *x = myallocate(5000, "my_pthread.c", 0, 0);
 
 	printMemory();
 	splitPages(); // scheduled out
 	printMemory();
 
-	loadRunningProcessPages();
+	pthread_t t = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
+	t->id = 2;
+	t->priority = 0;
+	t->born = (unsigned long)time(NULL);
+	t->function = NULL;
+	t->arg = NULL;
+	t->finished = 0;
+	t->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, 2);
+	*running = t;
 
+	void *y = myallocate(4000, "my_pthread.c", 0, 0);
+	loadRunningProcessPages();
 	printMemory();
+	
 	return 0;
 }
