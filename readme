@@ -1,3 +1,70 @@
+--- #Assignment 2 ---
+# Student: Roger Bassons Renart & Andrew Choliy
+# NetID: rb1018 & ...
+# Tested on grep.cs.rutgers.edu
+
+#Issues with our code
+
+Our code, with virtual memory enabled, does not work with Benchmarking code.
+Our current design can only hold a memory as big as the physical region reserved
+to threads (per thread).
+
+
+#Overview
+
+In order to implement our memory managment mechanism we use a Linked List to keep
+track of both pages and dynamic allocations. All the bookkeeping is done inside
+the 8MB char array.
+
+The first ~2MB are reserved for OS allocations. This reserved space is a Linked
+List of dynamic size elements.
+
+After the OS reserved space and until the last 4 pages we have the memory region
+used for the threads. This region is initialized with pages (fixed size
+elements) with the help of a Linked List. Then inside each page we have another
+Linked List that can be used by the page's thread to allocate dynamic size
+elements.
+
+The last 4 pages are another Linked List that is used by all the threads as a
+shared region.
+
+#Pages
+
+When a thread tries to allocate more memory than a page can hold, the OS will
+allocate extra pages as needed. This pages are grouped in a "big page" while the
+thread is running/accessing memory. When this thread is enqueued to the OS
+queue, this "big page" is split into pages to make it easier to manage pages
+(this way we can assume all the pages are the same size).
+
+Once the thread is scheduled to run again the "splitted" pages are grouped again
+into one "big page".
+
+
+# Virtual Memory
+To simulate virtual memory we swap pages to the beggining of the memory
+(beggining of threads region).
+
+This design makes impossible to give a thread a virtual memory bigger than the
+physical memory.
+
+
+#Swap & Replacing
+
+
+#Tests
+
+We don't know why, but this tests only work if compiled "by hand" without Makefile.
+
+* test4: General test for virtual memory
+* test5: Allocations bigger than a page test
+* test6: Splitting and grouping test
+* test7: Shared memory test
+
+
+
+
+--- #Assignment 1 ---
+
 # Student: Roger Bassons Renart
 # NetID: rb1018
 # Tested on grep.cs.rutgers.edu
