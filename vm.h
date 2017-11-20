@@ -10,8 +10,10 @@
 #define OSREQ -1
 #define SWAPREQ -2
 #define SHALLOC -3
+#define VMREQ -4
 
-#define VIRTUAL_MEMORY 1
+#define VIRTUAL_MEMORY 0
+#define ANDREW_VM 1
 #define PHYSICAL_SIZE  8000000 //8MB
 #define SWAP_SIZE 16000000 // 16MB
 #define SWAP_STRATEGY 0 // 0 -> naive, 1 -> 2n chance
@@ -59,6 +61,8 @@ void printOSMemory();
 void printMemory();
 void printSwap();
 
+void *translatePtr(void *ptr);
+void memfun(int sig, siginfo_t *si, void *unused);
 
 #ifdef THREADREQ
 #define malloc(x) myallocate(x, __FILE__, __LINE__, THREADREQ)

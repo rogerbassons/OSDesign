@@ -70,8 +70,10 @@ void scheduler()
 	(*running)->priority += 1;
 
 	if (!empty(run)) {
-		virtualMemory();
-		
+	  //virtualMemory();
+	        if(ANDREW_VM == 1){
+		  mprotect(&mem[MEMORY_START], PHYSICAL_SIZE - MEMORY_START, PROT_NONE);	
+		}
 		my_pthread_t *nextThread = pop(run);
 		pushOrdered(0, run, running);
 		*running = *nextThread;

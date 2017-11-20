@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include "LinkedList.h"
 #include "vm.h"
+#include <sys/mman.h>
 
 #define STACK_SIZE 32768
 #define QUANTUM 25000

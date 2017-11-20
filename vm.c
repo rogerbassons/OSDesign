@@ -11,6 +11,9 @@
 
 FILE *f = NULL;
 int shared_init = 0;
+int threadOrders[1000] = {0}; //Can have at most 1000 threads
+int PAGE_SIZE;
+int inMemFun = 0;
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -838,8 +841,9 @@ void setSIGSEGV()
 	struct sigaction sa;
 	sa.sa_flags = SA_SIGINFO;
 	sigemptyset(&sa.sa_mask);
-	sa.sa_sigaction = handler;
-		
+	//sa.sa_sigaction = handler;
+	sa.sa_sigaction = memfun;	
+	
 	if (sigaction(SIGSEGV, &sa, &oldSIGSEGV) == -1) {
 			
 		printf("Fatal error setting up signal handler\n");
@@ -876,7 +880,7 @@ void init()
 	initializeFreePages(mem + MEMORY_START, PHYSICAL_SIZE - sharedSize - MEMORY_START);
 
 	// set SIGSEGV handler
-	if (VIRTUAL_MEMORY)
+	if (VIRTUAL_MEMORY || ANDREW_VM)
 		setSIGSEGV();
 
 	// Create Swap file
@@ -895,11 +899,13 @@ void init()
 void *myallocate (size_t size, char *file, int line, int request)
 {
 	sigset_t oldmask;
-	sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
+	if(request != VMREQ){
+	  sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
+	}
 
 	if (mem == NULL) { //first run
 		init();
-	
+		PAGE_SIZE = sysconf(_SC_PAGE_SIZE);
 	}
 
 	void *ptr = NULL;
@@ -909,20 +915,31 @@ void *myallocate (size_t size, char *file, int line, int request)
 		ptr = getFreeElementFrom(sharedMemoryStart, size);
 		break;
 	case THREADREQ:
+	  //printf("Myallocate: case threadreq.\n");
 		// allocate inside a thread page
+		if(ANDREW_VM == 1){
+		  mprotect(&mem[MEMORY_START], PHYSICAL_SIZE - MEMORY_START, PROT_READ | PROT_WRITE);
+		}
 		ptr = getFreeElement(size);
+		if(ANDREW_VM == 1){
+		  //printf("&mem[Memorystart]: %p\n", (void *)&mem[MEMORY_START]);
+		  ptr = translatePtr(ptr);
+		  mprotect(&mem[MEMORY_START], PHYSICAL_SIZE - MEMORY_START, PROT_NONE);
+		}
 		break;
 	case OSREQ:
 		// allocate memory to OS data
 		ptr = getFreeElementFrom(mem, size);
 		break;
 	default:
+	  //printf("Myallocate: case default.\n");
 		// reserve a page to a thread with id request
 		ptr = getFreePage(size, request);
 
 	}
-
-	sigprocmask(SIG_SETMASK, &oldmask, NULL);
+	if(request != VMREQ){
+	  sigprocmask(SIG_SETMASK, &oldmask, NULL);
+	}
 	return ptr;
 }
 
@@ -951,4 +968,270 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 
 void *shalloc (size_t size){
 	return myallocate(size, "shalloc", 0, SHALLOC);
+}
+
+
+/*
+  translateptr is a function used to transform the input real memory address to a virtual one.
+  
+  To do this, an array called threadOrders exist to see how many pages some thread has created.
+  Each element in threadOrders should increment by however many pages a call to malloc requested.
+  You dereference threadOrders by the current thread's pid.
+  Updating this value should probably happen when you update the pid of a page's SpaceNode.
+  Sometimes, a malloc call can give a thread some space in a page it already allocated, which
+  should not increment threadOrders[running->pid].
+  
+  In my incomplete implementation below, I assumed each malloc call would require a new page,
+  and so update threadOrders[running->pid] here instead of elsewhere in myallocate.
+  
+  threadOrders[running->pid] serves as a sort of index that describes which real page the virtual
+  address should point to.
+  
+  To translate, first we need to find what real page the real address corresponds to. Since the real
+  page could be of any size (as long as it's a multiple of sysconf(_SC_PAGE_SIZE) ), we have to go
+  from the beginning of mem and check to see if the real addr is contained in each page's address space.
+  Once we have the right page, we need to calculate the offset between the page's address and the real address.
+  Then we calculate the virtual address based on the 'index' from threadOrders and the offset.
+  
+  There is one more issue I haven't considered yet: For each thread, the virtual addresses are always
+  strictly increasing. That means that if one thread tries to allocate more than the maximum amount
+  of memory, its entry in threadOrders will correspond to a page outside of memory. Since all the
+  information we have about what page needs to be swapped in is an address and the current running
+  thread, I don't think any implementation will fix this (If you loop the index, then you might
+  have collisions where one virtual address could correspond to two pages). However, the user
+  could free an earlier page, and the implementation as I've described would not be able to find
+  that free virtual page.
+  
+*/
+void *translatePtr(void * ptr){
+  if((long)ptr > (long)(&mem[PHYSICAL_SIZE - 1])){
+    perror("ptr is out of range of mem.\n");
+    exit(1);
+  }
+  SpaceNode * snptr = (SpaceNode *) &mem[MEMORY_START];
+  while((long)snptr < (long)ptr){
+    if(snptr->next == NULL){ //could be the very last page
+      break;
+    }
+    if((long)snptr->next > (long)ptr){
+      break;
+    }
+    snptr = snptr->next;
+  }
+  
+  //Now, snptr contains the page in actual memory where ptr is pointing to. From this, we can calculate an offset from snptr.
+  
+  if(threadOrders[snptr->pid] == 0){ //malloc seems to start assigning from one page off? This should compensate.
+    threadOrders[snptr->pid]++;
+  }
+
+  long snoffset = ((long)ptr) - ((long)snptr);
+  snptr->order = threadOrders[snptr->pid];
+  threadOrders[snptr->pid] += ((snptr->size + sizeof(SpaceNode) - 1) / PAGE_SIZE) + 1;
+  void * virloc = (void *) ((long)&mem[MEMORY_START] + (PAGE_SIZE * snptr->order) + snoffset);
+  return virloc;
+}
+
+
+
+
+
+
+int getPageSize(SpaceNode * ptr){
+  //In case size doesn't have what I expect I can calculate the size I want later. For now I hope it's good.
+  return ptr->size;
+  
+}
+
+
+void memfun(int sig, siginfo_t *si, void *unused){
+  //First, let's prevent any alarm interrupts from being made. This shouldn't affect seg fault interrupts.
+  sigset_t oldmask;
+  sigprocmask(SIG_BLOCK, &sa->sa_mask, &oldmask);
+  
+  //check to make sure that memfun itself didn't raise a seg fault.
+  if(inMemFun == 1){
+    perror("memfun caused a segfault\n");
+    exit(1);
+  }
+  inMemFun = 1;
+  
+  //Now check to make sure that the addr is actually within mem
+  if((long)&mem[MEMORY_START] > (long)si->si_addr || (long)&mem[PHYSICAL_SIZE - 1] < (long)si->si_addr){
+    perror("Actual segmentation fault. Addr is outside of valid mem area.\n");
+    exit(1);
+  }
+  
+  //un-mprotect all the memory so we can mess with stuff. I'm not sure about the runtime of this so it may run slow, but it's easy to understand.
+  //NOTE: mprotect needs to start at a location that is system-page-aligned. I figure the easiest way to do this is to move MEMORY_START
+  //so that &mem[MEMORY_START] % sysconf(_SC_PAGE_SIZE) = 0. Note that I have not done this yet since I don't know how important MEMORY_START
+  //staying the same is to your code.
+  mprotect(&mem[MEMORY_START], PHYSICAL_SIZE - MEMORY_START, PROT_READ | PROT_WRITE);
+  
+  //Next, let's find out what real page is sitting at the virtual address's space.
+  if(running == NULL){ //sanity check
+    perror("running was null.\n");
+    exit(1);
+  }
+  int currid = (*running)->id;
+  
+  SpaceNode * pageptr = ((SpaceNode *)&mem[MEMORY_START]);
+  long pgid = (long)si->si_addr - (long)&mem[MEMORY_START]; //number of bytes from the beginning of mem
+  pgid = pgid / PAGE_SIZE; //pgid now holds the inex of the expected page that user asked for. We need to move that data here somewhere else.
+  //Note that the page at pgid currently might not have a SpaceNode, if the previous page was large enough.
+  while(pageptr != NULL){ //No guarantees on page size, so we have to iterate through the linked list.
+    if(pageptr->free == 0 && pageptr->pid == currid){
+      //We found an allocated page for our pid, but is it the right one?
+      if(pageptr->order <= pgid && pageptr->order + (getPageSize(pageptr) / PAGE_SIZE) >= pgid){
+	//printf("Found needed page.\n");
+	break;
+      }
+    }
+    pageptr = pageptr->next;
+  }
+  
+  
+  if(pageptr == NULL){
+    //The page was not found within memory. However, it may be in the swapfile. We'll have to check that.
+    perror("Page not found in memory. Need to implement checking swapfile.\n");
+    exit(1);
+  }
+  
+  //So now, pageptr points to the page that the thread is requesting. pgid is the 'page index' where that page ought to be.
+  //Now, let's move whatever is at the addresses of mem that pageptr needs to be at.
+  
+  SpaceNode * snptr = ((SpaceNode *)&mem[MEMORY_START]);
+  SpaceNode * snprev;
+  int pg = 0;
+  
+  while(pg <= pgid && snptr != NULL){
+    pg += ((getPageSize(snptr)+sizeof(SpaceNode) - 1) / PAGE_SIZE) + 1;
+    //That -1 is there because if the size happens to equal page_size - sizeof(spacenode), we only need one page still.
+    snprev = snptr;
+    snptr = snptr->next;
+  }
+  
+  //Now, snprev points to where pageptr should be moved to, and snptr is that page's next.
+  //Note that snprev could be multiple pages long, and pageptr needs to actually be moved to somewhere *inside* of it.
+  
+  //Find out how many pages need to be freed:
+  int pagesneeded = ((getPageSize(pageptr) + sizeof(SpaceNode) - 1) / PAGE_SIZE) + 1;
+  //The 'page index' of snprev:
+  long snprev_pg_index = (long)  ( (long)snprev - (long)&mem[MEMORY_START] ) / PAGE_SIZE;
+  pagesneeded -= (pgid - snprev_pg_index) + 1; //We'll have to move snprev at any rate, so the nubmer of extra pages we'll need decreases by the pages snprev has.
+  //However, snprev could be free space, and pageptr wants to go int the middle of that instead of the beginning. I just pagesneeded appropriately to account for this.
+  if(pagesneeded > 0 && snprev->next == NULL){
+    //This could potentially happen if allocation gives a virtual memory pointer by the very end of memory, but the size of the page is too big.
+    //I guess this another thing translation will need to account for. I haven't done that.
+    printf("need more pages but we're at the end of mem...\n");
+    exit(1);
+  }
+  
+  //If snprev isn't free, call allocate on it so you can free up space.
+  
+  if(snprev->free == 0){
+    SpaceNode * temp = (SpaceNode *)myallocate(getPageSize(snprev), __FILE__, __LINE__, VMREQ);
+    //This malloc call returns a real address, not virtual.
+    if(temp == NULL){
+      perror("Couldn't find enough space to swapp.\n");
+      exit(1);
+    }
+    memcpy(temp->start, snprev->start, snprev->size);
+    temp--;
+    temp->pid = snprev->pid;
+    //Additional swap operations are necessary. Namely, appropriately marking snprev as free (possible extending a previous free spacenode)
+    //As well as updating the pointers in the metadata of the new page.
+    //I don't think a standard mydeallocate would work, since that expects a pointer to some data, not a spacenode.
+  }
+  //}
+  
+  //We moved over snprev, but we still don't have enough pages available for our desired page.
+  
+  while(pagesneeded > 0){ //start moving stuff stuff starting at snptr
+    if(snptr == NULL){
+      //Again, translation would have given a virtual address with less room than was needed.
+      perror("Required page size is leaking off the edge of mem.\n");
+      exit(1);
+    }
+    pagesneeded -= ((getPageSize(snptr) + sizeof(SpaceNode) - 1) / PAGE_SIZE) + 1;
+    if(snptr->free == 1){
+      snptr = snptr->next;
+    }
+    else {
+      SpaceNode * temp = (SpaceNode *)myallocate(getPageSize(snptr), __FILE__, __LINE__, VMREQ);
+      //It's possible this allocate call found a 'free' address either in snprev or another page
+      //we had just freed in an earlier loop. I haven't implemented anything to account for this yet.
+      if(temp == NULL){
+	perror("Couldn't find enough space to swap.\n");
+	exit(1);
+      }
+      memcpy(temp, snprev->start,snprev->size);
+      temp--;
+      temp->pid = snptr->pid;
+      temp = snptr;
+      snptr = snptr->next;
+      //Again, more swap operations are necessary.
+      
+      if(snptr == pageptr){
+	//We happened to move over a the page that we want to swap in. We need to update pageptr to the new location in this case.
+	pageptr = temp;
+      }
+      
+    }
+  }
+  
+  //Now we need to get the address where we'll be plopping the node down. Recall that pageptr is where the data is currently residing. We want to move it to newloc.
+  SpaceNode * newloc = (SpaceNode *) (((long)&mem[MEMORY_START]) + (PAGE_SIZE * pgid));
+  
+  if (pagesneeded < 0){ //This means that the last page we removed was larger than we needed space for. Now we need to add in free space pagenode.
+    printf("Running freeloc stuff.\n");
+    //I'm not exactly sure what a free spacenode should look like. I gathered it was something like this.
+    SpaceNode * freeloc = (SpaceNode *) (((long)newloc) + sizeof(SpaceNode) + getPageSize(pageptr)); //This should fall right on a page.
+    freeloc->start = (char *)(freeloc + 1);
+    if(snptr == NULL){
+      //freeloc becomes the last spacenode in mem.
+      freeloc->size = (PHYSICAL_SIZE + &mem[MEMORY_START]) - ((long)freeloc->start);
+    } else {
+      freeloc->size = ((long)snptr) - ((long)freeloc->start);
+    }
+    freeloc->free = 1;
+    freeloc->next = snptr;
+    freeloc->prev = newloc;
+    newloc->next = freeloc;
+  }
+  
+  //Will we be putting down memory in the middle of some free space?
+  if(newloc == snprev){
+    //Great, where we want to put the page already lines up with the beginning of some free space.
+    //If the free space was bigger than the pagesize, that should have been covered in the previous if statement.
+  } else {
+    //We need to do some pointer gynmnastics first.
+    snprev->next = newloc;
+    snprev->size = ((long)newloc) - ((long)snprev->start);
+    newloc->prev = snprev;
+  }
+  memcpy((newloc + 1), (pageptr + 1), pageptr->size);
+  newloc->pid = pageptr->pid;
+  if(pagesneeded == 0){  //otherwise, newloc's next is already sorted out in a previous section
+    newloc->next = snptr;
+    if(snptr!= NULL){
+      snptr->prev = newloc;
+    }
+  }
+  
+  //Need to have some code to free stuff up at pageptr. Also, we need to do things like update metadata pointers.
+  
+  //mprotect everything except the page we just swapped.
+  
+  /*mprotect(&mem[MEMORY_START],(int)(((char *)newloc) - &mem[MEMORY_START]), PROT_NONE);
+  if(newloc->next != NULL){
+    mprotect(newloc->next,(&mem[PHYSICAL_SIZE - 1]) - (int)newloc->next, PROT_READ | PROT_WRITE);
+    }*/
+  int tempsize = newloc->size; //Won't be able to dereference newloc->size otherwise
+  mprotect(&mem[MEMORY_START], PHYSICAL_SIZE - MEMORY_START, PROT_NONE);
+  mprotect(newloc, tempsize + sizeof(SpaceNode), PROT_READ | PROT_WRITE);
+  inMemFun = 0;
+  
+  //Lastly, re-enable interrupts.
+  sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
