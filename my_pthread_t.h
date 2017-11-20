@@ -29,7 +29,6 @@ struct sthread {
 	void **res;
 	int finished;
         LinkedList *waitJoin;
-	void *pages;
 };
 typedef sthread* my_pthread_t;
 

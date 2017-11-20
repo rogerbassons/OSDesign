@@ -8,8 +8,8 @@ void virtualMemory()
 {
 	updateReference();
 	if (VIRTUAL_MEMORY) {
-			void *pages = (*running)->pages;
-			memoryProtect(pages);
+			unsigned pid = (*running)->id;
+			memoryProtect(pid);
 	}
 }
 
@@ -70,10 +70,7 @@ void scheduler()
 	(*running)->priority += 1;
 
 	if (!empty(run)) {
-	  //virtualMemory();
-	        if(ANDREW_VM == 1){
-		  mprotect(&mem[MEMORY_START], PHYSICAL_SIZE - MEMORY_START, PROT_NONE);	
-		}
+		virtualMemory();
 		my_pthread_t *nextThread = pop(run);
 		pushOrdered(0, run, running);
 		*running = *nextThread;
@@ -133,7 +130,7 @@ int createNewThread(my_pthread_t * thread, void *(*function) (void *), void *arg
 	t->priority = 0;
 	t->born = (unsigned long)time(NULL);
 
-	t->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, t->id);
+	myallocate(0, "my_pthread.c", 0, t->id);
 
 	if (getcontext(&(t->context)) != -1) {
 
@@ -167,7 +164,7 @@ void initOS()
 	mainThread->function = NULL;
 	mainThread->arg = NULL;
 	mainThread->finished = 0;
-	mainThread->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, *nextId);
+	myallocate(0, "my_pthread.c", 0, *nextId);
 	(*nextId)++;
 
 	running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);

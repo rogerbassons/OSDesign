@@ -22,7 +22,7 @@ void *inc_x(void *x_void_ptr)
 int main()
 {
 
-	int *x = (int *)malloc(sizeof(int));
+	int *x = (int *)shalloc(sizeof(int));
 	*x = 0;
 	int y = 0;
 

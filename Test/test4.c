@@ -19,7 +19,7 @@ void *test(void *p)
 int main()
 {
 
- 	int nThreads = 10;
+ 	int nThreads = 5;
 	
 	pthread_t t[nThreads];
 
