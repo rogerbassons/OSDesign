@@ -1,7 +1,7 @@
 // File:	externalMerge.c
 // Author:	Yujie REN
 // Date:	09/23/2017
-// Modified by Roger Bassons 10/16/2017
+// Modified by Roger Bassons 11/20/2017
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -22,7 +22,6 @@ pthread_mutex_t   mutex;
 int thread_num;
 
 int* counter;
-pthread_t *thread;
 
 int *memory = NULL;
 
@@ -115,12 +114,12 @@ int main(int argc, char **argv) {
 	}
 
 	// initialize counter
-	counter = (int*)malloc(thread_num*sizeof(int));
+	counter = (int*)shalloc(thread_num*sizeof(int));
 	for (i = 0; i < thread_num; ++i)
 		counter[i] = i;
 
 	// initialize pthread_t
-	thread = (pthread_t*)malloc(thread_num*sizeof(pthread_t));
+	pthread_t thread[thread_num];
 
 	memory = (int*)malloc(RAM_SIZE);
 	memset(memory, 0, RAM_SIZE);
@@ -128,7 +127,7 @@ int main(int argc, char **argv) {
 	pthread_mutex_init(&mutex, NULL);
 
 	for (i = 0; i < thread_num; ++i)
-		pthread_create(&thread[i], NULL, external_calculate, &counter[i]);
+		pthread_create(thread + i, NULL, external_calculate, counter + i);
 
 	signal(SIGABRT, sig_handler);
 	signal(SIGSEGV, sig_handler);
