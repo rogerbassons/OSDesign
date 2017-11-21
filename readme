@@ -13,6 +13,62 @@ to threads (per thread).
 
 #Overview
 
+In order to implement our memory management mechanism we use a Linked List to keep
+track of both pages and dynamic allocations. All the bookkeeping is done inside
+the 8MB char array.
+
+The first 1MB is space reserved to pages bookkeeping and the next ~1MB is reserved for
+OS allocations. This OS reserved space is a Linked List of dynamic size elements.
+
+After the OS reserved space and until the last 4 pages we have the memory region
+used for the threads. This region is initialized with pages (fixed size
+elements) with the help of a Linked List (this Linked List is the one we keep at
+the beginning of the memory). Then inside each page we have another Linked List
+that can be used by the page's thread to allocate dynamic size elements.
+
+The last 4 pages are another Linked List that is used by all the threads as a
+shared region. In other words, they are shalloc's pages.
+
+#Pages
+
+When a thread tries to allocate more memory than a page can hold, the OS will
+allocate extra pages as needed and make them contiguous. At our first
+implementation we tried to keep the Linked List between pages but we changed our
+design to the current one(bookkeeping at the beginning). We changed it because it gets
+difficult to manage multiple pages per process when there is Linked List nodes
+in between. Additionally, having all of the bookkeeping structures at the beginning 
+makes it easier to implement contiguous memory allocations that are larger than
+page size.
+
+# Virtual Memory
+To simulate virtual memory we swap pages to the beginning of the memory
+(beginning of threads region).
+
+This design makes impossible to give a single thread a virtual memory bigger than the
+physical memory. Because we allocate to contiguous pages, once we filled up
+until the last page we can't allocate one more page to the thread. However, this
+limitation cannot be circumvented, since in any implementation the addresses
+used by the thread must correspond to real locations somewhere in the mem array.
+If we were able to modify the actual address that a thread requested, then we
+could allocate more space than exists for a single thread and swap it in when necessary.
+
+
+#Swap & Replacing
+--- #Assignment 2 ---
+# Student: Roger Bassons Renart & Andrew Choliy
+# NetID: rb1018 & ayc41
+# Tested on grep.cs.rutgers.edu
+
+#Issues with our code
+
+Our code, with virtual memory enabled, does work with Benchmark vectorMultiply but
+doesn't work with externalCal and parallelCal benchmarks.
+Our current design can only hold a memory as big as the physical region reserved
+to threads (per thread).
+
+
+#Overview
+
 In order to implement our memory managment mechanism we use a Linked List to keep
 track of both pages and dynamic allocations. All the bookkeeping is done inside
 the 8MB char array.
@@ -36,7 +92,7 @@ allocate extra pages as needed and put them contiguous. At our first
 implementation we tried to keep the Linked List between pages but we changed our
 design to the current one(bookkeeping at the beginning). We changed it because it gets
 difficult to manage multiple pages per process when there is Linked List nodes
-in between. 
+in between.
 
 # Virtual Memory
 To simulate virtual memory we swap pages to the beginning of the memory
@@ -50,6 +106,13 @@ should implement a better virtual memory with a page table and address translati
 
 #Swap & Replacing
 
+The swap file is initialized the same way that memory is: a large amount of system
+page-sized chunks of free memory, with bookkeeping structures in a reserved areas by
+the beginning. When a thread tries to allocate and not enough main memory is available,
+the swap file is loaded and it attempts to find free space. Additionally, the memory
+manager scans through the swap file if it is unable to find a requested page in memory.
+The mechanisms of finding, freeing, and allocating are the same as normal, except they
+operate on the loaded data.
 
 #Tests
 
@@ -58,79 +121,3 @@ should implement a better virtual memory with a page table and address translati
 * test5: Per thread's allocation test
 * test6: Allocation bigger than a page test
 * test7: Shared memory test
-
-
-
---- #Assignment 1 ---
-
-# Student: Roger Bassons Renart
-# NetID: rb1018
-# Tested on grep.cs.rutgers.edu
-
-## Implementation overview
-
----
-
-* I implemented a RR scheduler that priority to jobs that finish before the fixed 
-time quanta (25ms). Around every 4 seconds(~150 scheduler runs). I reorder the 
-run queue giving priority to the oldest jobs no matter what. This could be improved 
-(with more time) to avoid that if there are a lot of low priority jobs they 
-don't starve to run. The way the scheduler works causes priority inversion: oldest
-threads (low priority) get pushed to the front of the running queue every 4
-seconds to aviod starvation.
-
-* My implementation of the waiting queue is not global: there is a waiting queue for
-each mutex. This way, a thread that is waiting for a mutex is never scheduled to run.
-Once the mutex is released, the next thread waiting for the mutex is pushed to the
-run queue. If no threads are waiting for the mutex, the mutex is completely unlocked.
-This mutex implementation doesn't induce priority inversion because waiting threads
-aren't scheduled to run, therefore waiting threads' priority is never lowered.
-
-* I developed a Linked List to implement thread queues.
-
-* In order to aviod being interrupted while running the scheduler I use sigprocmask 
-function to block and ignore the interrupt signal.
-
-* Scheduler variables, i.e. run queue, are allocated on the heap(malloc) instead of the 
-stack to avoid losing changes when switching context.
-
-* In addition to the pthreads implementation you will find three test programs 
-that check the correctness of the implementation:
-
-  - test1.c: checks pthread_create, pthread_exit, pthread_join among others.
-
-  - test2.c: checks scheduler and pthread_yield among others (never ends).
-
-  - test3.c: checks mutex among others.
-
-
-## Benchmarking
-
----
-
-I couldn't use the latest benchmarking code from the TA because unfortunately the
-latest code was released too close to the assignment deadline and I've got a very tight
-schedule. I modified the first versions of the benchmarking code to be able to
-run it:
-
-### vectorMultiply
-
-threads 1000  
-array size 100000000
-
-my_pthread_t time: 31.901s
-
-pthread_t    time: 25.489s
-
-
-### parallelCal
-
-threads 1000
-C size 10000000
-R size 100000
-
-my_pthread_t
-real 1m07.584s
-
-pthread_t
-real 26.239s
