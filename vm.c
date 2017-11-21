@@ -15,11 +15,12 @@ typedef struct spaceNode {
 	unsigned pid;
 	unsigned reference;
 	unsigned free;
-	unsigned order;
+	int order;
 	void *start;
 	unsigned size;
 	struct spaceNode *next;
 	struct spaceNode *prev;
+	unsigned dataStartsAnotherPage;
 } SpaceNode;
 
 SpaceNode *getFirstPage()
@@ -109,7 +110,6 @@ int createSpace(SpaceNode *n, size_t size)
 	int restSize = n->size - size;
 	n->size = size;
 	if (restSize > sizeof(SpaceNode)) {
-			
 		SpaceNode new;
 		new.free = 1;
 		new.order = 1;
@@ -126,18 +126,9 @@ int createSpace(SpaceNode *n, size_t size)
 		memcpy(newPos, &new, sizeof(SpaceNode));
 		
 		n->next = (SpaceNode *) newPos;
-	} else if (restSize > 0) {
-		SpaceNode *p = n->prev;
-		SpaceNode *page = NULL;
-		while (p != NULL) {
-			page = p;
-			p = p->prev;
-		}
-		if (page != NULL) {
-			page = ((void *) page) - sizeof(SpaceNode);
-		}
 	}
 
+		
 		
 	return 0;
 }
@@ -508,26 +499,31 @@ void printMemory()
 		if (!n->free) {
 			printf("----- Page thread %i -----\n", n->pid);
 			printf("Page start address %p     \n", n->start);
+			printf("Order %i     \n", n->order);
 			printf("Size: %i\n", n->size);
 			
-			printf("      Contents:\n");
 			//memoryAllow(n->pid);
-			SpaceNode *s = (SpaceNode *) n->start;
-			int j = 1;
-			while (s != NULL) {
-				if (s->free)
-					printf("      ----- Free Space -----\n");
-				else {
-					printf("      ----- Element %i -----\n", j);
-					j++;
+			if (!(n->dataStartsAnotherPage == 1)) {
+				printf("      Contents:\n");
+				SpaceNode *s = (SpaceNode *) n->start;
+				int j = 1;
+				while (s != NULL) {
+					if (s->free)
+						printf("      ----- Free Space -----\n");
+					else {
+						printf("      ----- Element %i -----\n", j);
+						j++;
+					}
+					printf("      Size: %i\n", s->size);
+					s = getNextSpace(s);
+				
+				
+				
 				}
-				printf("      Size: %i\n", s->size);
-				s = getNextSpace(s);
+				//memoryProtect(n->pid);
 				
-				
-				
-			}
-			//memoryProtect(n->pid);
+			} else
+				printf("***This page's content starts on previous process page***\n");
 			printf("----------------------------------\n");
 		}
 		n = getNextSpace(n);
@@ -554,9 +550,6 @@ SpaceNode *getContiguousPage(SpaceNode *page)
 void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 {
 	if (page1 != page2) {
-		printf("MAKE CONTG\n");
-		swapPages((SpaceNode *)mem, page1);
-
 		SpaceNode *contiguousPage = getContiguousPage(page1);
 		swapPages(contiguousPage, page2);
 	}
@@ -579,22 +572,90 @@ int loadProcessPages(unsigned pid) {
 		p2 = findPage(pid, i);
 		i++;
 	}
+
+
 	return 0;
 }
 
-int reserveAnotherPage(SpaceNode *page)
+SpaceNode *getLastElement(SpaceNode *page)
 {
-	printf("Another page\n");
-	unsigned pid = page->pid;
+	SpaceNode *last = page->start;
+	SpaceNode *e = getNextSpace(last);
+
+	while (e != NULL) {
+		last = e;
+		e = getNextSpace(e);
+	}
+
+	return last;
+}
+
+SpaceNode *getLastProcessPage(unsigned pid)
+{
+	SpaceNode *last = findPage(pid, 1);
+	SpaceNode *p = findPage(pid, 2);
+
+	int i = 3;
+	while (p != NULL) {
+		last = p;
+		p = findPage(pid, i);
+		i++;
+	}
+
+	return last;
+}
+
+void joinFreeSpace(SpaceNode *newPage, unsigned pid)
+{
+	SpaceNode *prev = findPage(pid, 1);
+	SpaceNode *p = findPage(pid, 2);
+	int i = 3;
+	while (p != NULL) {
+		prev = p;
+		p = findPage(pid, i);
+		i++;
+	}
+	p = prev; // last page
+
+	i = prev->order - 1;
+	while (p != NULL && p->dataStartsAnotherPage) {
+		prev = p;
+		p = findPage(pid, i);
+		i--;
+	}
+
+	if (prev != NULL && !prev->dataStartsAnotherPage) {
+			SpaceNode *e = getLastElement(p);
+			if (e != NULL && e->free) {
+				newPage->dataStartsAnotherPage = 1;
+				e->size += newPage->size;
+			}
+	}
+	
+
+}
+
+int reserveAnotherPage(unsigned pid)
+{
+
+
 	SpaceNode *newPage = getFreePage(pageSize, pid);
 	if (newPage == NULL) {
 		printf("No free pages while reserving another page\n");
 		return 1;
 	}
-	newPage->order = page->order += 1;
+
+
+	
+	newPage->order = -1;
+	joinFreeSpace(newPage, pid);
+
+	SpaceNode *last = getLastProcessPage(pid);
+	newPage->order = last->order + 1;
+	
 
 	loadProcessPages(pid);
-
+	
 	return 0;
 }
 
@@ -608,46 +669,65 @@ void *getFreeElement(size_t size)
 		pid = (*running)->id;
 
 
-	SpaceNode * p = findProcessPage(pid);
+	
+	SpaceNode * p = NULL;
+	if (VIRTUAL_MEMORY) {
+		loadProcessPages(pid);
+		p = getFirstPage();
+	} else {
+		p = findPage(pid, 1);
+	}
 	if (p == NULL) {
 		perror("Cannot find process page");
 		return NULL;
 	}
+	
+
 	p->reference = 1;
+	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), size);
 
-	if (VIRTUAL_MEMORY) {
-		swapPages(getFirstPage(), p);
-		p = getFirstPage();
-	}
-
-	size_t findSize = size;
-
-
-	SpaceNode *n = findFreeSpace((SpaceNode *)(p->start), findSize);
-
+	
+	
 	if (n == NULL) {
-		if (VIRTUAL_MEMORY) {
-			printf("Special\n");
+		if (!VIRTUAL_MEMORY) {
+			return NULL;
+		} else {
 			if (size > PHYSICAL_SIZE - MEMORY_START)
 				printf("Unable to reserve bigger than physical memory size\n");
-			if (reserveAnotherPage(p)) {
-				perror("Error reserving another page: no free space");
-				return NULL;
+		
+			p = findPage(pid, 2);
+			int i = 3;
+			while (p != NULL && n == NULL) {
+			
+				n = findFreeSpace((SpaceNode *)(p->start), size);
+				if (i == -1) {
+					//printMemory();
+					//exit(1);
+				}
+				p = findPage(pid, i);
+				i++;
+			
+			
 			}
-			return getFreeElement(size);
-			
-		}
-		return NULL;
-			
-	} else {
+
+			if (n == NULL) {
+				if (reserveAnotherPage(pid)) {
+					perror("Error reserving another page: no free space");
+					return NULL;
+				}
+				return getFreeElement(size);
+			}
+		} 
+	}
 
 		
-		if (createSpace(n, size)) {
-			perror("Error creating space");
-			return NULL;
-		}
-		return (void *)n->start;
+	if (createSpace(n, size)) {
+		perror("Error creating space");
+		return NULL;
 	}
+
+
+	return (void *)n->start;
 }
 
 void printOSMemory()
@@ -772,6 +852,7 @@ void init()
 	new.size = pageSize;
 	new.pid = 0;
 	new.order = 1;
+	new.dataStartsAnotherPage = 0;
 	
 	void *ptr = mem + MEMORY_START;
 	void *nodePtr = mem;

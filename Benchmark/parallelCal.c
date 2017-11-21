@@ -1,7 +1,7 @@
 // File:	parallelCal.c
 // Author:	Yujie REN
 // Date:	09/23/2017
-// Modified by Roger Bassons 10/16/2017
+// Modified by Roger Bassons 11/20/2017
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -11,15 +11,14 @@
 
 #define DEFAULT_THREAD_NUM 4
 
-#define C_SIZE 100000
-#define R_SIZE 1000
+#define C_SIZE 10000
+#define R_SIZE 100
 
 pthread_mutex_t   mutex;
 
 int thread_num;
 
 int* counter;
-pthread_t *thread;
 
 int*    a[R_SIZE];
 int	 pSum[R_SIZE];
@@ -74,12 +73,12 @@ int main(int argc, char **argv) {
 	}
 
 	// initialize counter
-	counter = (int*)malloc(thread_num*sizeof(int));
+	counter = (int*)shalloc(thread_num*sizeof(int));
 	for (i = 0; i < thread_num; ++i)
 		counter[i] = i;
 
 	// initialize pthread_t
-	thread = (pthread_t*)malloc(thread_num*sizeof(pthread_t));
+	pthread_t thread[thread_num];
 
 	// initialize data array
 	for (i = 0; i < R_SIZE; ++i)
@@ -95,7 +94,7 @@ int main(int argc, char **argv) {
 	pthread_mutex_init(&mutex, NULL);
 
 	for (i = 0; i < thread_num; ++i)
-		pthread_create(&thread[i], NULL, parallel_calculate, &counter[i]);
+		pthread_create(thread + i, NULL, parallel_calculate, counter + i);
 
 	for (i = 0; i < thread_num; ++i)
 		pthread_join(thread[i], NULL);

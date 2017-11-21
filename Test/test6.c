@@ -9,7 +9,7 @@
 typedef struct spaceNode {
 	unsigned pid;
 	unsigned free;
-	unsigned order;
+	int order;
 	unsigned split;
 	void *start;
 	unsigned size;
@@ -25,7 +25,7 @@ SpaceNode *findProcessPage(unsigned pid, SpaceNode *start);
 SpaceNode *findSplitPage(unsigned pid, int number);
 int splitPages();
 
-void loadRunningProcessPages();
+void loadProcessPages();
 
 int main()
 {
@@ -36,16 +36,15 @@ int main()
 	mainThread->function = NULL;
 	mainThread->arg = NULL;
 	mainThread->finished = 0;
-	mainThread->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, 1);
+	myallocate(0, "my_pthread.c", 0, 1);
 
 	running = (my_pthread_t *) myallocate(sizeof(my_pthread_t), "my_pthread.c", 0, OSREQ);
+
 	*running = mainThread;
-
-	void *x = myallocate(5000, "my_pthread.c", 0, 0);
+	char *a = myallocate(100, "my_pthread.c", 0, THREADREQ);
 
 	printMemory();
-	splitPages(); // scheduled out
-	printMemory();
+	
 
 	pthread_t t = (sthread *) myallocate(sizeof(sthread), "my_pthread.c", 0, OSREQ);
 	t->id = 2;
@@ -54,11 +53,19 @@ int main()
 	t->function = NULL;
 	t->arg = NULL;
 	t->finished = 0;
-	t->pages = myallocate(sysconf( _SC_PAGE_SIZE), "my_pthread.c", 0, 2);
-	*running = t;
+	myallocate(0, "my_pthread.c", 0, 2);
 
-	void *y = myallocate(4000, "my_pthread.c", 0, 0);
-	loadRunningProcessPages();
+	*running = t;
+	char *b = myallocate(1200, "my_pthread.c", 0, THREADREQ); // this will need multiple pages
+
+	printMemory();
+	loadProcessPages(mainThread->id);
+	printMemory();
+
+
+	loadProcessPages(t->id);
+	printMemory();
+	myallocate(4000, "my_pthread.c", 0, THREADREQ); // more pages
 	printMemory();
 	
 	return 0;

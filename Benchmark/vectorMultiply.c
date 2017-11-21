@@ -1,7 +1,7 @@
 // File:	vectorMultiply.c
 // Author:	Yujie REN
 // Date:	09/23/2017
-// Modified by Roger Bassons 10/16/2017
+// Modified by Roger Bassons 11/20/2017
 #include <stdio.h>
 #include <unistd.h>
 
@@ -9,7 +9,7 @@
 
 #include "../my_pthread_t.h"
 
-#define DEFAULT_THREAD_NUM 2
+#define DEFAULT_THREAD_NUM 3
 
 #define VECTOR_SIZE 1000
 
@@ -18,7 +18,6 @@ pthread_mutex_t   mutex;
 int thread_num;
 
 int* counter;
-pthread_t *thread;
 
 int r[VECTOR_SIZE];
 int s[VECTOR_SIZE];
@@ -48,6 +47,7 @@ void verify() {
 int main(int argc, char **argv) {
 	int i = 0;
 
+	
 	if (argc == 1) {
 		thread_num = DEFAULT_THREAD_NUM;
 	} else {
@@ -59,12 +59,12 @@ int main(int argc, char **argv) {
 	}
 
 	// initialize counter
-	counter = (int*)malloc(thread_num*sizeof(int));
+	counter = (int*)shalloc(thread_num*sizeof(int));
 	for (i = 0; i < thread_num; ++i)
 		counter[i] = i;
 
 	// initialize pthread_t
-	thread = (pthread_t*)malloc(thread_num*sizeof(pthread_t));
+	pthread_t thread[thread_num];
 
 	// initialize data array
 	for (i = 0; i < VECTOR_SIZE; ++i) {
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
 	pthread_mutex_init(&mutex, NULL);
 
 	for (i = 0; i < thread_num; ++i)
-		pthread_create(&thread[i], NULL, vector_multiply, &counter[i]);
+		pthread_create(thread + i, NULL, vector_multiply, counter + i);
 
 	for (i = 0; i < thread_num; ++i)
 		pthread_join(thread[i], NULL);
