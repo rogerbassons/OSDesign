@@ -13,9 +13,10 @@
 
 #define VIRTUAL_MEMORY 1
 #define PHYSICAL_SIZE  8000000 //8MB
-#define SWAP_SIZE 16000000 // 16MB
+#define SWAP_SIZE 4000000 // 16MB
 #define SWAP_STRATEGY 0 // 0 -> naive, 1 -> 2n chance
 #define OSRESERVED_START 1000000
+#define SWAP_MEMORY_START 1000000
 #define MEMORY_START   2097152 // first ~2MB are OS-reserved
 void *sharedMemoryStart;
 char *mem; // physical memory
