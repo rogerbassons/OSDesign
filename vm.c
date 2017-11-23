@@ -11,7 +11,7 @@
 
 FILE *f = NULL;
 int inHandler = 0;
-int successfulSwapFileChecks = 0;
+
 
 typedef struct spaceNode {
 	unsigned pid;
@@ -23,6 +23,7 @@ typedef struct spaceNode {
 	struct spaceNode *next;
 	struct spaceNode *prev;
 	unsigned dataStartsAnotherPage;
+        char swapclock;
 } SpaceNode;
 
 SpaceNode *getFirstPage()
@@ -245,6 +246,25 @@ void restorePagePointers(SpaceNode *n, size_t size)
 	restorePointers(n, size, 0);
 }
 
+void fixSwapPtrs(char * swap)
+{	
+  void * ptr = swap + SWAP_MEMORY_START;
+  SpaceNode * nodePtr = (SpaceNode *)swap;
+  int s = 0;
+  long max = swap + SWAP_MEMORY_START - sizeof(SpaceNode);
+  long maxSize = SWAP_SIZE - (SWAP_MEMORY_START + pageSize );
+  SpaceNode * old = NULL;
+  while(nodePtr < max && s < maxSize){
+    nodePtr->start = ptr;
+    nodePtr->prev = old;
+    if (old != NULL){
+      old->next = nodePtr;}
+    old = nodePtr;	  
+    s+= pageSize;
+    ptr += pageSize;
+    nodePtr++; 
+  }	
+}
 
 int getSwap(char* swap)
 {
@@ -262,7 +282,8 @@ int getSwap(char* swap)
 	}
 	//fflush(f);
 	
-	restorePagePointers((SpaceNode *) swap, SWAP_SIZE);
+	//restorePagePointers((SpaceNode *) swap, SWAP_SIZE);
+	fixSwapPtrs(swap);
 	fclose(f);
 	return 0;
 	
@@ -298,12 +319,15 @@ SpaceNode *getVictimPage(unsigned pid) {
 		}
 		return snptr;
 	}
-	SpaceNode *n = getFirstPage();
-	while (n != NULL) {
-		if (n->size == pageSize && n->reference == 0 && n->pid != pid)
-			return n;
-
-		n = getNextSpace(n);
+	SpaceNode *n = getLastPage();
+	int rounds = 0;
+	while(n != NULL && n->pid == pid && n->swapclock < 3){
+	  n = n->prev;
+	  n->swapclock++;
+	  if(n == NULL && rounds < 2){
+	    rounds++;
+	    n = getLastPage();
+	  }
 	}
 	return n;
 }
@@ -329,13 +353,23 @@ int movePageToSwap(unsigned pid) //We avoid moving pages with pid to swapfile.
 		return 1;
 	}
 
-	SpaceNode *freeSwapPage = findFreeSpace((SpaceNode *)swap, evict->size);
+	//SpaceNode *freeSwapPage = findFreeSpace((SpaceNode *)swap, evict->size);
+	SpaceNode * freeSwapPage = (SpaceNode *)swap;
+	while(freeSwapPage != NULL && freeSwapPage->free == 0){
+	  freeSwapPage = freeSwapPage->next;
+	}
 	if (freeSwapPage == NULL) {
 		fprintf(stderr, "Error: No free pages in swap file\n");
 		return 1;
 	}
-
-	memcpy( freeSwapPage->start, evict->start, pageSize - sizeof(SpaceNode) );
+	
+	freeSwapPage->pid = evict->pid;
+	freeSwapPage->free = 0;
+	freeSwapPage->reference = evict->reference;
+	freeSwapPage->dataStartsAnotherPage = evict->dataStartsAnotherPage;
+	freeSwapPage->size = evict->size;
+	freeSwapPage->order = evict->order;
+	memcpy( freeSwapPage->start, evict->start, pageSize );
 		        
 	writeSwap(swap);
 
@@ -352,10 +386,13 @@ int swapPages(SpaceNode *p1, SpaceNode *p2)
 		return 0;
 	
 	char buff[pageSize];
+	//static char buff[4096];
 	SpaceNode page1;
 	SpaceNode page2;
-
+	
 	// Backup p1
+	//int * tempGuy = (int *) ((SpaceNode *)(p1->start))->start;
+	//printf("%d\n", *tempGuy);
  	memcpy(buff, p1->start, pageSize);
 	memcpy(&page1, p1, sizeof(SpaceNode));
 
@@ -397,6 +434,7 @@ void *getFreePage(size_t size, unsigned pid)
 	
 	if (n == NULL) {
 		printf("No free pages, moving pages to swap...\n");
+		if(USE_SWAP_F == 0){return NULL;}
 		if (movePageToSwap(pid)) 
 			return NULL;
 		else 
@@ -433,7 +471,7 @@ SpaceNode *findPage(unsigned pid, int order)
 		else
 			n = getNextSpace(n);
 	}
-	
+	/*
 	if (res == NULL){
 	  //printf("Running the problem bit!!\n");
 	  static char swap[SWAP_SIZE];
@@ -467,27 +505,27 @@ SpaceNode *findPage(unsigned pid, int order)
 	  }
 	  //printf("About to exit the problem bit. Res was: %lu\n", res);
 	}
-	
+	*/
+	if(res != NULL){
+	  res->swapclock = 0;
+	}
 	return res;
 }
 
-/*
+
 SpaceNode *findPageInSwap(unsigned pid, int order)  //Finds a page in swap file and places it in main memory.
 {
-  printf("Running findPageInSwap.\n");
   static char swap[SWAP_SIZE];
-  SpaceNode *n = (SpaceNode *)&swap[0];
-  SpaceNode * res = NULL;
   if(getSwap(swap) == 1){
     return NULL;
   }
-  n = (SpaceNode *)swap;
-  n = NULL;
+  SpaceNode *n = (SpaceNode *)swap;
+  SpaceNode *res = NULL;
   while (n != NULL && res == NULL) {
-    if (pid == n->pid && order == n->order)
+    if (pid == n->pid && order == n->order && n->free == 0)
       res = n;
     else
-      n = getNextSpace(n);
+      n = n->next;
   }
   
   if(res != NULL){
@@ -504,13 +542,14 @@ SpaceNode *findPageInSwap(unsigned pid, int order)  //Finds a page in swap file 
     removeSpace(res, PAGE); //Not sure about removeSpace working with a pointer to swap, but it oughtta be ok 
     //res->pid = 0;
     //res->free = 1;
-    //writeSwap(swap);
+    writeSwap(swap);
     res = temp;
+    res->swapclock = 0;
   }
-  printf("About to exit findPageInSwap. Res was: %lu\n", res);
+  //printf("About to exit the problem bit. Res was: %lu\n", res);	
   return res;
 }
-*/
+
 
 SpaceNode *findProcessPage(unsigned pid)
 {
@@ -646,10 +685,12 @@ void makeContiguous(SpaceNode *page1, SpaceNode *page2)
 int loadProcessPages(unsigned pid) {
 
         SpaceNode *p1 = findPage(pid, 1);
+	if(p1 == NULL && USE_FIND_IN_SWAP){ p1 = findPageInSwap(pid, 1); }
 	swapPages(getFirstPage(), p1);
 	p1 = getFirstPage();
 	
 	SpaceNode *p2 = findPage(pid, 2);
+	if(p2 == NULL && USE_FIND_IN_SWAP){ p2 = findPageInSwap(pid, 2); }
 
 	unsigned i = 3;
 	while (p1 != NULL && p2 != NULL) {
@@ -657,6 +698,7 @@ int loadProcessPages(unsigned pid) {
 
 		p1 = p2;
 		p2 = findPage(pid, i);
+		if(p2 == NULL && USE_FIND_IN_SWAP){ p2 = findPageInSwap(pid, i); }
 		i++;
 	}
 
@@ -935,7 +977,7 @@ void init()
 	new.start = mem + OSRESERVED_START + sizeof(SpaceNode);
 	new.pid = 0;
 	new.order = 1;
-
+	new.swapclock = 0;
 	memcpy(mem + OSRESERVED_START, &new, sizeof(SpaceNode));
 	// Free space for pages
 	// Pages bookkeeping
@@ -980,6 +1022,7 @@ void init()
 	new.size = pageSize;
 	new.pid = 0;
 	new.order = 0;
+	new.swapclock = 0;
 	new.dataStartsAnotherPage = 0;
 	ptr = swap + SWAP_MEMORY_START;
 	nodePtr = swap;
@@ -1002,7 +1045,8 @@ void init()
 	}
 	
 	writeSwap(swap);
-
+	//printSwapF(10);
+	//exit(1);
 }
 
 void *myallocate (size_t size, char *file, int line, int request)
@@ -1070,11 +1114,27 @@ void mydeallocate(void* ptr, char *file, int line, int request)
 void *shalloc (size_t size) {
 	return myallocate(size, "shalloc", 0, SHALLOC);
 }
-  
-int getSwapNum(){
-  return successfulSwapFileChecks;
+
+void printSwapF(int k){
+  static char swap[SWAP_SIZE];
+  if(getSwap(swap)==1){
+    printf("Error opening swap.\n");
+    return;
+  }
+  int val = 0;
+  SpaceNode * n = (SpaceNode *)&swap[0];
+  printf("Printing first %d pages of swapfile.\n", k, n);
+ 
+  int i = 0;
+  for(i = 0; i < k; i++){
+    if(n == NULL){
+      printf("printSwapF finished early: node was null.\n");
+      return;
+    }
+    val = *(int *)( ((SpaceNode *)(n->start)) + 1 );
+    printf("%dth Node. n is at %d. Pid is %d. Order is %d. Next is at %d, val was %d.\n", i, n, n->pid, n->order, n->next, val);
+    n = n->next;
+  }
 }
-
-
 
 
