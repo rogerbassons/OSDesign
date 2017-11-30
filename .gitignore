@@ -2,7 +2,9 @@
 *~
 *.swp
 *.a
+*.log
 test
+sfs
 test2
 test3
 test4
@@ -12,4 +14,6 @@ swap
 vectorMultiply
 parallelCal
 externalCal
-
+config.log
+config.status
+.deps
