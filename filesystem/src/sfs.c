@@ -41,6 +41,19 @@
 ||             ||            ||            ||       |  |      ||      |  |       ||
 |---------------------------------------------------+  +--------------------------|
 +---------------------------------------------------------------------------------+
+
+Superblock contains information about the FS. Where all info starts.
+
+inodeList is a list that represents free/used inodes. This list doesn't contain
+any pointers to actual inodes. Iff attribute free of nth node of this list is 1 
+then the nth inode on the actual inode list(starting at 3rd Block) is free.
+
+The same can be said for dataList.
+
+The number of space/blocks used to store actual inodes is calculated on init and
+to make it simple we choose the maximum number of blocks that the disk can hold 
+minus 3 blocks (the first three blocks used to do the bookeeping).
+
 */
 
 
