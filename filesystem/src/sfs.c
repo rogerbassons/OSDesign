@@ -29,6 +29,21 @@
 
 #include "log.h"
 
+/*
++---------------------------------------------------------------------------------+
+|---------------------------------------------------+  +--------------------------|
+||             ||            ||            ||3 Block|  |      ||      |  |       ||
+||  0 Block    ||   1 Block  ||  2 Block   || first |  | last || first|  | last  ||
+||             ||            ||            ||       |  |      ||      |  |       ||
+||  Superblock || inodeList  ||  dataList  || inode |..| inode|| data |..| data  ||
+||             ||            ||            ||       |  |      ||      |  |       ||
+||             ||            ||            ||       |  |      || block|  | block ||
+||             ||            ||            ||       |  |      ||      |  |       ||
+|---------------------------------------------------+  +--------------------------|
++---------------------------------------------------------------------------------+
+*/
+
+
 #define DIRECTORY 0
 #define FILE      1
 
@@ -78,6 +93,10 @@ void initializeFreeList(void *list, unsigned size, int maxNumber)
 		s += sizeof(fsNode);
 		n += sizeof(fsNode);
 	}
+
+	if (s <= size && i < maxNumber)
+		log_msg("\nCouldn't create free list for all available inodes\n");
+
 }
 
 int getFree(void *start)
@@ -163,18 +182,18 @@ void *sfs_init(struct fuse_conn_info *conn)
 		return NULL;
 	}
 
-	unsigned maxBlocksUsable = FS_SIZE/BLOCK_SIZE - BLOCK_SIZE * 3;
+	unsigned nInodes = FS_SIZE/BLOCK_SIZE - BLOCK_SIZE * 3;
 
 	superblock s;
 
 	s.inodeList = *disk + BLOCK_SIZE;
 	s.dataList = s.inodeList + BLOCK_SIZE;
 	s.inodeStart = s.dataList + BLOCK_SIZE;
-	s.dataStart = s.inodeStart + maxBlocksUsable * sizeof(inode);
+	s.dataStart = s.inodeStart + nInodes * sizeof(inode);
 	memcpy(*disk, &s, sizeof(superblock));
 
-	initializeFreeList(s.inodeList, BLOCK_SIZE, -1);
-	initializeFreeList(s.dataList, BLOCK_SIZE, maxBlocksUsable);
+	initializeFreeList(s.inodeList, BLOCK_SIZE, nInodes);
+	initializeFreeList(s.dataList, BLOCK_SIZE, -1);
 
 	newInode(DIRECTORY, "/");
 
