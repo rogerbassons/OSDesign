@@ -310,7 +310,6 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 		return 1;
 	}
 	statbuf->st_mode = i->st_mode;
-	statbuf->st_mode = i->st_mode;
 	statbuf->st_nlink = i->st_nlink;
 	statbuf->st_uid = i->st_uid;
 	statbuf->st_gid = i->st_gid;
@@ -320,7 +319,7 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 	clock_gettime(CLOCK_MONOTONIC, &t);
 	i->st_atim = t;
 	statbuf->st_mtime = i->st_mtim.tv_sec;
-
+	
 	return 0;
 }
 
