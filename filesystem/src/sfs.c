@@ -185,10 +185,11 @@ int newInode(unsigned type, char *name)
 	i->st_uid = getuid(); 
 	i->st_gid = getgid();        
 
-	struct timespec *t;
-	clock_gettime(CLOCK_MONOTONIC, t);
-	i->st_atim = *t;
-	i->st_mtim = *t;
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+
+	i->st_atim = t;
+	i->st_mtim = t;
 
 	return 0;
 }
@@ -259,7 +260,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 		log_msg("\n Error: can't malloc file system\n");
 		return NULL;
 	}
-
+	
 	unsigned nInodes = (FS_SIZE - BLOCK_SIZE * 3) / BLOCK_SIZE;
 	unsigned nBlocks = (FS_SIZE - BLOCK_SIZE * (3 + nInodes)) / BLOCK_SIZE;
 
@@ -315,9 +316,9 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 	statbuf->st_gid = i->st_gid;
 	statbuf->st_size = i->st_size;
 	statbuf->st_atime = i->st_atim.tv_sec;
-	struct timespec *t;
-	clock_gettime(CLOCK_MONOTONIC, t);
-	i->st_atim = *t;
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	i->st_atim = t;
 	statbuf->st_mtime = i->st_mtim.tv_sec;
 
 	return 0;
