@@ -56,6 +56,7 @@ minus 3 blocks (the first three blocks used to do the bookkeeping).
 
 */
 
+void log_fuse_context(struct fuse_context *);
 
 #define DIRECTORY 0
 #define FILE      1
@@ -506,8 +507,10 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 	char fpath[PATH_MAX];
 	strcpy(fpath, path);
 
-	filler(buf, ".", NULL, 0); 
-	filler(buf, "..", NULL, 0);
+	if(filler(buf, ".", NULL, 0))
+		log_msg("Filler buffer is full\n"); 
+	if (filler(buf, "..", NULL, 0))
+		log_msg("Filler buffer is full\n");
 
 	inode *i = findPath(fpath);
 	if (i->type != DIRECTORY)
@@ -515,7 +518,8 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 
 	i = i->nextInode;
 	while (i != NULL) {
-		filler(buf, i->name, NULL, 0);
+		if (filler(buf, i->name, NULL, 0))
+			log_msg("Filler buffer is full\n");
 		i = i->nextInode;
 	}
 
