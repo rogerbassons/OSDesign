@@ -78,7 +78,7 @@ typedef struct fsNode {
 
 typedef struct inode {
 	unsigned type;
-	char *name;
+	char name[PATH_MAX];
 	void *data;
 	struct inode *nextInode;
 	mode_t    st_mode;        /* File type and mode */
@@ -163,7 +163,7 @@ int newInode(unsigned type, char *name)
 	inode *i = getFreeInode();
 
 	i->type = type;
-	i->name = name;
+	strcpy(i->name, name);
 	i->nextInode = NULL;
 
 	if (type == DIRECTORY) {
@@ -198,7 +198,7 @@ int newInode(unsigned type, char *name)
 inode *getRootInode()
 {
 	// root "/" inode is always the first one
-	return (inode *) getSuperblock()->inodeList;
+	return (inode *) getSuperblock()->inodeStart;
 }
 
 inode *findNextInode(inode *i, char *s)
@@ -217,7 +217,7 @@ inode *findPath(char *path)
 {
 	char *s = strtok(path, "/");
 	inode *i = getRootInode();
-
+	
 	while (s != NULL) {
 		i = findNextInode(i, s);
 		if (i == NULL) 
@@ -299,27 +299,28 @@ void sfs_destroy(void *userdata)
  */
 int sfs_getattr(const char *path, struct stat *statbuf)
 {
+	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
 	char fpath[PATH_MAX];
 	strcpy(fpath, path);
-	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n",
-			path, statbuf);
 
 	inode *i = findPath(fpath);
 	if (i == NULL) {
 		log_msg("Can't find inode from path\n");
-		return 1;
+		return -ENOENT;	
 	}
+	
 	statbuf->st_mode = i->st_mode;
 	statbuf->st_nlink = i->st_nlink;
 	statbuf->st_uid = i->st_uid;
 	statbuf->st_gid = i->st_gid;
-	statbuf->st_size = i->st_size;
+	if (i->type != DIRECTORY)
+		statbuf->st_size = i->st_size;
 	statbuf->st_atime = i->st_atim.tv_sec;
 	struct timespec t;
 	clock_gettime(CLOCK_MONOTONIC, &t);
 	i->st_atim = t;
 	statbuf->st_mtime = i->st_mtim.tv_sec;
-	
+
 	return 0;
 }
 
@@ -504,17 +505,20 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
 int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
 		struct fuse_file_info *fi)
 {
+	log_msg("\nsfs_readdir(path=\"%s\", fi=0x%08x)\n", path, fi);
 	char fpath[PATH_MAX];
 	strcpy(fpath, path);
+
+	inode *i = findPath(fpath);
+	if (i->type != DIRECTORY)
+		return 1;
+
 
 	if(filler(buf, ".", NULL, 0))
 		log_msg("Filler buffer is full\n"); 
 	if (filler(buf, "..", NULL, 0))
 		log_msg("Filler buffer is full\n");
 
-	inode *i = findPath(fpath);
-	if (i->type != DIRECTORY)
-		return 1;
 
 	i = i->nextInode;
 	while (i != NULL) {
@@ -532,6 +536,8 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
  */
 int sfs_releasedir(const char *path, struct fuse_file_info *fi)
 {
+	log_msg("\nsfs_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
+
 	int retstat = 0;
 
 
