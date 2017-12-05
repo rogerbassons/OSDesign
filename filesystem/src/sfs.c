@@ -52,7 +52,7 @@ The same can be said for dataList.
 
 The number of space/blocks used to store actual inodes is calculated on init and
 to make it simple we choose the maximum number of blocks that the disk can hold 
-minus 3 blocks (the first three blocks used to do the bookeeping).
+minus 3 blocks (the first three blocks used to do the bookkeeping).
 
 */
 
@@ -60,7 +60,7 @@ minus 3 blocks (the first three blocks used to do the bookeeping).
 #define DIRECTORY 0
 #define FILE      1
 
-#define FS_SIZE    100  * 1000000
+#define FS_SIZE    100000000
 
 typedef struct {
 	void *inodeList;
@@ -80,6 +80,13 @@ typedef struct inode {
 	char *name;
 	void *data;
 	struct inode *nextInode;
+	mode_t    st_mode;        /* File type and mode */
+	nlink_t   st_nlink;       /* Number of hard links */
+	uid_t     st_uid;         /* User ID of owner */
+	gid_t     st_gid;         /* Group ID of owner */
+	off_t     st_size;        /* Total size, in bytes */
+	struct timespec st_atim;  /* Time of last access */
+	struct timespec st_mtim;  /* Time of last modification */
 } inode;
 
 superblock *getSuperblock()
@@ -157,9 +164,67 @@ int newInode(unsigned type, char *name)
 	i->type = type;
 	i->name = name;
 	i->nextInode = NULL;
-	i->data = getFreeBlock();
 
-	return 1;
+	if (type == DIRECTORY) {
+
+		i->st_mode = S_IFDIR;
+		i->st_nlink = 2;
+		i->data = NULL;
+
+	} else {
+
+		i->data = getFreeBlock();
+		i->st_mode = S_IFREG;
+		i->st_nlink = 1;
+		i->st_size = BLOCK_SIZE;
+
+	}
+	i->st_mode = i->st_mode | S_IRWXU | S_IRWXG | S_IRWXO;
+
+	i->st_uid = getuid(); 
+	i->st_gid = getgid();        
+
+	struct timespec *t;
+	clock_gettime(CLOCK_MONOTONIC, t);
+	i->st_atim = *t;
+	i->st_mtim = *t;
+
+	return 0;
+}
+
+
+inode *getRootInode()
+{
+	// root "/" inode is always the first one
+	return (inode *) getSuperblock()->inodeList;
+}
+
+inode *findNextInode(inode *i, char *s)
+{
+	if (i->type != DIRECTORY)
+		return NULL;
+
+	inode *res = i->nextInode;
+	while (res != NULL && strcmp(res->name, s) != 0) 
+		res = res->nextInode;
+
+	return res;
+}
+
+inode *findPath(char *path)
+{
+	char *s = strtok(path, "/");
+	inode *i = getRootInode();
+
+	while (s != NULL) {
+		i = findNextInode(i, s);
+		if (i == NULL) 
+			return NULL; // not found
+
+		s = strtok(NULL, "/");
+	}
+
+	return i;
 }
 
 
@@ -195,10 +260,10 @@ void *sfs_init(struct fuse_conn_info *conn)
 		return NULL;
 	}
 
-	unsigned nInodes = FS_SIZE/BLOCK_SIZE - BLOCK_SIZE * 3;
+	unsigned nInodes = (FS_SIZE - BLOCK_SIZE * 3) / BLOCK_SIZE;
+	unsigned nBlocks = (FS_SIZE - BLOCK_SIZE * (3 + nInodes)) / BLOCK_SIZE;
 
 	superblock s;
-
 	s.inodeList = *disk + BLOCK_SIZE;
 	s.dataList = s.inodeList + BLOCK_SIZE;
 	s.inodeStart = s.dataList + BLOCK_SIZE;
@@ -206,7 +271,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 	memcpy(*disk, &s, sizeof(superblock));
 
 	initializeFreeList(s.inodeList, BLOCK_SIZE, nInodes);
-	initializeFreeList(s.dataList, BLOCK_SIZE, -1);
+	initializeFreeList(s.dataList, BLOCK_SIZE, nBlocks);
 
 	newInode(DIRECTORY, "/");
 
@@ -233,14 +298,29 @@ void sfs_destroy(void *userdata)
  */
 int sfs_getattr(const char *path, struct stat *statbuf)
 {
-	int retstat = 0;
-
 	char fpath[PATH_MAX];
-
+	strcpy(fpath, path);
 	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n",
 			path, statbuf);
 
-	return retstat;
+	inode *i = findPath(fpath);
+	if (i == NULL) {
+		log_msg("Can't find inode from path\n");
+		return 1;
+	}
+	statbuf->st_mode = i->st_mode;
+	statbuf->st_mode = i->st_mode;
+	statbuf->st_nlink = i->st_nlink;
+	statbuf->st_uid = i->st_uid;
+	statbuf->st_gid = i->st_gid;
+	statbuf->st_size = i->st_size;
+	statbuf->st_atime = i->st_atim.tv_sec;
+	struct timespec *t;
+	clock_gettime(CLOCK_MONOTONIC, t);
+	i->st_atim = *t;
+	statbuf->st_mtime = i->st_mtim.tv_sec;
+
+	return 0;
 }
 
 /**
