@@ -227,7 +227,6 @@ inode *findPath(char *path)
 	return i;
 }
 
-
 ///////////////////////////////////////////////////////////
 //
 // Prototypes for all these functions, and the C-style comments,
@@ -504,7 +503,21 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
 int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
 		struct fuse_file_info *fi)
 {
-	int retstat = 0;
+	char fpath[PATH_MAX];
+	strcpy(fpath, path);
+
+	filler(buf, ".", NULL, 0); 
+	filler(buf, "..", NULL, 0);
+
+	inode *i = findPath(fpath);
+	if (i->type != DIRECTORY)
+		return 1;
+
+	i = i->nextInode;
+	while (i != NULL) {
+		filler(buf, i->name, NULL, 0);
+		i = i->nextInode;
+	}
 
 	return 0;
 }
