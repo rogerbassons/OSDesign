@@ -207,13 +207,18 @@ void *getFreeBlocks(size_t size)
 	return s->dataStart + BLOCK_SIZE * i;
 }
 
-int newInode(unsigned type, char *name, size_t size)
+int newInode(unsigned type, char *name, size_t size, inode *directory)
 {
 	inode *i = getFreeInode();
 
 	i->type = type;
 	strcpy(i->name, name);
 	i->nextInode = NULL;
+
+	if (directory != NULL) {
+		i->nextInode = directory->nextInode;
+		directory->nextInode = i;
+	}
 
 	if (type == DIRECTORY) {
 
@@ -323,7 +328,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 	initializeFreeList(s.inodeList, BLOCK_SIZE, nInodes);
 	initializeFreeList(s.dataList, BLOCK_SIZE, nBlocks);
 
-	newInode(DIRECTORY, "/", 0);
+	newInode(DIRECTORY, "/", 0, NULL);
 
 	return SFS_DATA;
 }
