@@ -80,7 +80,8 @@ typedef struct inode {
 	unsigned type;
 	char name[PATH_MAX];
 	void *data;
-	struct inode *nextInode;
+	struct inode *next;      // To use for data that spans multiple data blocks
+	struct inode *nextInode; // To use for directories. Each element inside a dir is linked
 	mode_t    st_mode;        /* File type and mode */
 	nlink_t   st_nlink;       /* Number of hard links */
 	uid_t     st_uid;         /* User ID of owner */
@@ -120,20 +121,40 @@ void initializeFreeList(void *list, unsigned size, int maxNumber)
 
 }
 
-int getFree(void *start)
+// returns the "index" number of the first free element in the list that starts
+// at start. (index starts counting from 0)
+// if size is bigger than BLOCK_SIZE it will search for the first series of
+// contiguous elements that can allocate size (considering that each element can
+// allocate BLOCK_SIZE).
+int getFree(void *start, size_t size)
 {
+	unsigned nElements = 1;
+	if (size > BLOCK_SIZE)
+		nElements = ceil(size / BLOCK_SIZE);
+
 	fsNode *n = start;
 
 	int i = 0;
-	while (!n->free && n->next != NULL) {
+	int j = 0;
+	int found = 0;
+	int free = 0; //consecutive free elements
+	while (n != NULL && !found) {
+		if (n->free) {
+			if (free == 0)
+				j = i;
+			free++;
+		} else	if (free > 0) {
+			free = 0; // restart counter
+		}
+		found = nElements == free;
+
 		i++;
 		n = n->next;
 	}
-
-	if (!n->free)
+	if (!found)
 		return -1;
 
-	return i;
+	return j;
 }
 
 inode *getFreeInode()
@@ -142,29 +163,31 @@ inode *getFreeInode()
 
 	void *start = s->inodeList;
 
-	unsigned i = getFree(start);
+	unsigned i = getFree(start, 0);
 
 	return s->inodeStart + sizeof(inode) * i;
 }
 
-void *getFreeBlock()
+
+// returns a pointer to the first block of a series of contiguous blocks
+// that are able to allocate size.
+void *getFreeBlocks(size_t size)
 {
 	superblock *s = getSuperblock();
 
-	void *start = s->dataList;
-
-	unsigned i = getFree(start);
+	unsigned i = getFree(s->dataList, size);
 
 	return s->dataStart + BLOCK_SIZE * i;
 }
 
-int newInode(unsigned type, char *name)
+int newInode(unsigned type, char *name, size_t size)
 {
 	inode *i = getFreeInode();
 
 	i->type = type;
 	strcpy(i->name, name);
 	i->nextInode = NULL;
+	i->next = NULL;
 
 	if (type == DIRECTORY) {
 
@@ -174,10 +197,10 @@ int newInode(unsigned type, char *name)
 
 	} else {
 
-		i->data = getFreeBlock();
+		i->data = getFreeBlocks(size);
 		i->st_mode = S_IFREG;
 		i->st_nlink = 1;
-		i->st_size = BLOCK_SIZE;
+		i->st_size = size;
 
 	}
 	i->st_mode = i->st_mode | S_IRWXU | S_IRWXG | S_IRWXO;
