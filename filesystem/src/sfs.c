@@ -22,6 +22,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <math.h>
 
 #ifdef HAVE_SYS_XATTR_H
 #include <sys/xattr.h>
@@ -120,6 +121,31 @@ void initializeFreeList(void *list, unsigned size, int maxNumber)
 
 }
 
+int markNotFree(void *start, unsigned i, unsigned nElem)
+{
+	fsNode *n = start;
+
+	// find the first
+	int j = 0;
+	while (n != NULL && j < i)
+		n = n->next;
+
+	if (n == NULL)
+		return 1;
+
+	// mark as not free nElem times starting from n
+	j = 0;
+	while (n != NULL && j < nElem) {
+		j++;
+		n->free = 0;
+		n = n->next;
+	}
+	if (j < nElem)
+		return 1;
+
+	return 0;
+}
+
 // returns the "index" number of the first free element in the list that starts
 // at start. (index starts counting from 0)
 // if size is bigger than BLOCK_SIZE it will search for the first series of
@@ -152,6 +178,8 @@ int getFree(void *start, size_t size)
 	}
 	if (!found)
 		return -1;
+	else 
+		markNotFree(start, j, nElements);
 
 	return j;
 }
@@ -295,7 +323,7 @@ void *sfs_init(struct fuse_conn_info *conn)
 	initializeFreeList(s.inodeList, BLOCK_SIZE, nInodes);
 	initializeFreeList(s.dataList, BLOCK_SIZE, nBlocks);
 
-	newInode(DIRECTORY, "/");
+	newInode(DIRECTORY, "/", 0);
 
 	return SFS_DATA;
 }
