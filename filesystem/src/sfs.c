@@ -80,7 +80,6 @@ typedef struct inode {
 	unsigned type;
 	char name[PATH_MAX];
 	void *data;
-	struct inode *next;      // To use for data that spans multiple data blocks
 	struct inode *nextInode; // To use for directories. Each element inside a dir is linked
 	mode_t    st_mode;        /* File type and mode */
 	nlink_t   st_nlink;       /* Number of hard links */
@@ -187,7 +186,6 @@ int newInode(unsigned type, char *name, size_t size)
 	i->type = type;
 	strcpy(i->name, name);
 	i->nextInode = NULL;
-	i->next = NULL;
 
 	if (type == DIRECTORY) {
 
