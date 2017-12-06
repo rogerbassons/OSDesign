@@ -454,14 +454,14 @@ int sfs_unlink(const char *path)
  */
 int sfs_open(const char *path, struct fuse_file_info *fi)
 {
-	int retstat = 0;
 	log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n",
 			path, fi);
+	if ((fi->flags & O_CREAT) == O_CREAT) {
+		return sfs_create(path, S_IRWXU | S_IRWXG | S_IRWXO, fi);
+	}
 
+	return 0;
 
-
-
-	return retstat;
 }
 
 /** Release an open file
