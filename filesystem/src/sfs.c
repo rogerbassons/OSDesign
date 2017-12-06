@@ -207,7 +207,7 @@ void *getFreeBlocks(size_t size)
 	return s->dataStart + BLOCK_SIZE * i;
 }
 
-int newInode(unsigned type, char *name, size_t size, inode *directory)
+int newInode(unsigned type, char *name, size_t size, inode *directory, mode_t *mode)
 {
 	inode *i = getFreeInode();
 
@@ -234,7 +234,10 @@ int newInode(unsigned type, char *name, size_t size, inode *directory)
 		i->st_size = size;
 
 	}
-	i->st_mode = i->st_mode | S_IRWXU | S_IRWXG | S_IRWXO;
+	if (mode == NULL)
+		i->st_mode = i->st_mode | S_IRWXU | S_IRWXG | S_IRWXO;
+	else
+		i->st_mode = i->st_mode | *mode;
 
 	i->st_uid = getuid(); 
 	i->st_gid = getgid();        
@@ -328,7 +331,8 @@ void *sfs_init(struct fuse_conn_info *conn)
 	initializeFreeList(s.inodeList, BLOCK_SIZE, nInodes);
 	initializeFreeList(s.dataList, BLOCK_SIZE, nBlocks);
 
-	newInode(DIRECTORY, "/", 0, NULL);
+	if (newInode(DIRECTORY, "/", 0, NULL, NULL))
+		log_msg("Error: Can't create root inode\n");
 
 	return SFS_DATA;
 }
@@ -378,6 +382,19 @@ int sfs_getattr(const char *path, struct stat *statbuf)
 	return 0;
 }
 
+char *extractFilename(const char *path)
+{
+	char fpath[PATH_MAX];
+	char *s = strtok(fpath, "/");
+	char *old = s;
+	while (s != NULL) {
+		s = strtok(NULL, "/");
+		old = s;
+	}
+
+	return old;
+}
+
 /**
  * Create and open a file
  *
@@ -392,12 +409,27 @@ int sfs_getattr(const char *path, struct stat *statbuf)
  */
 int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	int retstat = 0;
 	log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
 			path, mode, fi);
 
+	char *filename = extractFilename(path);
 
-	return retstat;
+	char fpath[PATH_MAX];
+	strcpy(fpath, path);
+
+	// remove filename from path
+	fpath[strlen(fpath) - strlen(filename) + 1] = '\0'; 
+
+
+	inode *dir = findPath(fpath);
+	if (dir == NULL) {
+		log_msg("Can't create file: directory/path not found");
+		return 1;
+	}
+
+	return newInode(FILE, filename, 0, dir, &mode);
+
+
 }
 
 /** Remove a file */
@@ -425,6 +457,8 @@ int sfs_open(const char *path, struct fuse_file_info *fi)
 	int retstat = 0;
 	log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n",
 			path, fi);
+
+
 
 
 	return retstat;
