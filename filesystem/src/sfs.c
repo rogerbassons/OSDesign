@@ -31,10 +31,11 @@
 
 #define DIRECTORY 0
 #define FILE 1
-#define NUM_DIRECT_POINTERS 49
+#define NUM_DIRECT_POINTERS 44
 #define FS_SIZE 16777216
 #define MAGIC 4511000 //magic number that indicates whether the fs is ours
 #define MAX_FNAME 24
+#define INUM_FREE 568754 //since an ino is an unsigned int, we can't just use -1 to indicate an unused spot in mydir's list of inums.
 
 typedef struct {
   int imap;
@@ -53,6 +54,9 @@ typedef struct inode {
   time_t st_atime;
   time_t st_mtime;
   time_t st_ctime;
+  nlink_t st_nlink;
+  off_t st_size;
+  blkcnt_t st_blocks;
   //char type;
   char opened;
   char used;
@@ -98,25 +102,108 @@ int reserveFreeData(){
   return -1;
 }
 
-void initDir(int isroot, int blocknum, int selfinum, int parentinum){
+ino_t reserveFreeInode(int type){
+  //returns a st_ino
+  log_msg("\nreserveFreeInode running.\n");
+
+  char spbuff[512];
+  if( 0 > block_read(0, (void *)spbuff) ){
+    log_msg("\nreserveFreeInode: block_read(0) failed.\n");
+  }
+  superblock * s = (superblock *)spbuff;
+  int iplace = s->imap;
+  char imap[512];
+  char ibuff[512];
+
+  while(iplace < s->dmap){
+    if(block_read(iplace, (void *)imap) < 0){
+      log_msg("\nreserveFreeInode: block_read(%d) failed.\n", iplace);
+    }
+    unsigned int j;
+    for(j = 0; j < 512; j++){
+      if(imap[j] == 0){
+        imap[j] = 1;
+        if(block_write(iplace, (const void *)imap) != 512){
+          log_msg("\nreservefreeInode: block_write failed.\n");
+        }
+
+        ino_t inum = ( (512 * (iplace - s->imap)) + j);
+
+        log_msg("\nreserveFreeInode: found a free inode in the map. iplace is %d, j is %d. Calculated inum is %d, corresponds to block %d.\n",
+                iplace, j, inum, 65 + (inum/2) );
+
+        block_read( 65 + (inum/2), ibuff);
+        inode *ti;
+        if(inum % 2 == 0){
+          ti = (inode *)ibuff;
+        }
+        else {
+          ti = (inode *)(ibuff + 256);
+        }
+        if(type == DIRECTORY){
+          ti->st_mode = S_IFDIR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH; //can be read/written by user, groups, and other
+        }
+        else{
+          ti->st_mode = S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH; //can be read/written by user, groups, and other
+        }
+        ti->st_ino = inum;
+        ti->st_uid = geteuid(); //Real or effective uid usage? I.e., getuid or geteuid?
+        ti->st_gid = getegid();
+        ti->st_atime = time(NULL);
+        ti->st_mtime = ti->st_atime;
+        ti->st_ctime = ti->st_atime;
+        ti->opened = 0;
+        ti->used = 0; //Just matches up with the imap
+        int k;
+        for(k = 0; k < NUM_DIRECT_POINTERS; k++){
+          ti->directp[k] = 0;
+        }
+        ti->indirectp = 0;
+        block_write(65 + (inum/2), (const void *)ibuff);
+        return inum;
+      }
+    }
+    iplace++;
+  }
+  return 0;
+}
+
+int getInode(ino_t inum, inode *in){
+  //gets the inode inum and writes it to location pointed to by in.
+  log_msg("\ngetInode running.\n");
+  char buff[512];
+  if(block_read( 65 + (inum/2), buff) < 0){ //65 really should be s->iList, but i don't want to keep reading in superblock
+    log_msg("\ngetInode: read failed.\n");
+    return -1;
+  }
+  if(inum%2 == 0){
+    *in = *(inode *)buff;
+  }
+  else{
+    *in = *(inode *)(buff + 256);
+  }
+  return 0;
+}
+
+void initDir(int blocknum, ino_t selfinum, ino_t parentinum){
   log_msg("\ninitDir running.\n");
   mydir d;
   block_read(blocknum, &d);
   d.inums[0] = selfinum;
   d.fnames[0][0] = '.';
   d.fnames[0][1] = '\0';
-  if(isroot == 0){
+  if(selfinum != parentinum){
     d.inums[1] = parentinum;
     d.fnames[1][0] = '.';
     d.fnames[1][1] = '.';
     d.fnames[1][2] = '\0';
   }
   else{
-    d.inums[1] = -1;
+    d.inums[1] = INUM_FREE;
   }
   int i;
   for(i = 2; i < 16; i++){
-    d.inums[i] = -1;
+    d.inums[i] = INUM_FREE;
   }
 
   block_write(blocknum, (const void *)&d);
@@ -126,7 +213,7 @@ void initDir(int isroot, int blocknum, int selfinum, int parentinum){
 
 int navPath(inode *par, inode *targ, const char *path){
   //The parent directory's inode will by par, and the target directory or file will be targ.
-  log_msg("\nnavPath running.\n");
+  log_msg("\nnavPath running on path \"%s\"\n", path);
   char sbbuff[512];
   block_read(0, (void *)sbbuff);
   superblock *s = (superblock *)sbbuff;
@@ -136,9 +223,9 @@ int navPath(inode *par, inode *targ, const char *path){
   block_read(s->iList, (void *)targibuff);
   inode *p = (inode *)paribuff;
   inode *t = (inode *)targibuff;
-  log_msg("\nnavPath: s->iList is %d. p->st_ino = %d.\n", s->iList, p->st_ino);
+  //log_msg("\nnavPath: s->iList is %d. p->st_ino = %d.\n", s->iList, p->st_ino);
 
-
+  int failcounter = 0;
   mydir m;
   char currname[MAX_FNAME];
   char flag = 0;
@@ -149,6 +236,13 @@ int navPath(inode *par, inode *targ, const char *path){
   }
   int i = 1;
   while(flag == 0){
+
+    failcounter++;
+    if(failcounter > 10000){
+      log_msg("\nnavPath: failcounter activated.\n");
+      return -1;
+    }
+
     int j = 0;
     *p = *t;
     while(path[i] != '/' && path[i] != '\0'){ //make sure path won't every end in a '/'
@@ -157,31 +251,42 @@ int navPath(inode *par, inode *targ, const char *path){
       j++;
     }
     currname[j] = '\0';
+    if(path[i] == '\0'){
+      flag = 1;
+    }
+    i++;
+    log_msg("\nnavPath: looking for path \"%s\"\n", currname);
 
     int q;
     int success = 0;
     for(q = 0; q < NUM_DIRECT_POINTERS; q++){
+      log_msg(" q is %d. ", q);
       int k;
       if(t->directp[q] == 0){
         continue;
       }
       block_read(t->directp[q], (void *)&m);
       for(k = 0; k < 16; k++){
-        if(m.inums[k] != -1 && strcmp(m.fnames[k], currname) == 0){
+        log_msg(" k is %d. ", k);
+        if(m.inums[k] != INUM_FREE){
+          log_msg("\nnavPath: found file/dir \"%s\" in current directory. (Note: this list isn't exhaustive.)\n",m.fnames[k]);
+        }
+        if(m.inums[k] != INUM_FREE && strcmp(m.fnames[k], currname) == 0){
+          log_msg("\nnavPath: found that file.\n");
           success = 1;
           //update t
           block_read( (m.inums[k]/2)+s->iList , (void *)targibuff);
           if(m.inums[k]%2 == 0){
-            p = (inode *)targibuff;
+            t = (inode *)targibuff;
           } else {
-            p = (inode *)(targibuff + 256);
+            t = (inode *)(targibuff + 256);
           }
           break;
         }
       }
       if(success == 1){break;}
     }
-    if(path[i] == '\0' || (path[i] == '/' && path[i+1] == '\0') ){
+    if(flag == 1 || path[i] == '\0' || (path[i] == '/' && path[i+1] == '\0') ){
       if(success == 1){flag = 2;}
       else{flag = 1;}
     }
@@ -192,6 +297,57 @@ int navPath(inode *par, inode *targ, const char *path){
   *targ = *t;
   if(flag == 1){return -1;}
   return 0;
+}
+
+int updateDir(char *newname, inode * par, inode *in, ino_t newino){
+  //takes a string and a pointer to a inode (that is already properly read from the disk) and updates the mydir struct(s)
+  //In other words, targ is the parent of some other inode that has inum newino, and is related to the name newname.
+  log_msg("\nupdateDir running. Some inode's ino: %d; the name it relates to: \"%s\"  The ino of its parent, targ: %d, the ino of the parent's parent: %d\n",
+          newino, newname, in->st_ino, par->st_ino);
+  char dirbuff[512];
+  char ibuff[512];
+  mydir * m = (mydir *)dirbuff;
+  int i;
+  while(i < NUM_DIRECT_POINTERS){
+    if(in->directp[i] == 0){
+      in->directp[i] = reserveFreeData();
+      if(in->directp[i] == -1){
+        log_msg("\nupdateDir: reservefreeData returned -1.\n");
+        return -1;
+      }
+      initDir(in->directp[i], in->st_ino, par->st_ino); //initDir handles the block write.
+      log_msg("\nupdateDir: ran reserveFreeData and InitDir. rfD returned %d.\n", in->directp[i]);
+
+      block_read( 65 + (in->st_ino/2), ibuff);
+      inode *ti;
+      if(in->st_ino % 2 == 0){
+        ti = (inode *)ibuff;
+      }
+      else {
+        ti = (inode *)(ibuff + 256);
+      }
+      ti->directp[i] = in->directp[i];
+      block_write( 65 + (in->st_ino/2), ibuff);
+
+    }
+    if(block_read(in->directp[i], dirbuff) < 0){
+      log_msg("\nupdateDir: block read failed.\n");
+      return -1;
+    }
+    int j;
+    for(j = 0; j < 16; j++){
+      if(m->inums[j] == INUM_FREE){
+        m->inums[j] = newino;
+        strcpy(m->fnames[j], newname);
+        if( 512 != block_write(in->directp[i], dirbuff)){
+          log_msg("\nupdateDir: block write didn't return 512.\n");
+        }
+        log_msg("\nupdateDir: updating. New m->inums[j]: %d New m->fnames[j]: \"%s\"\n", m->inums[j], m->fnames[j]);
+        return 0;
+      }
+    }
+  }
+  return -1;
 }
 
 ///////////////////////////////////////////////////////////
@@ -254,6 +410,8 @@ void *sfs_init(struct fuse_conn_info *conn)
     //Setting up freelists. That's about the only initialization I think is necessary, aside from setting up root.
     char temp[512] = {0};
     for(i = 1; i < sbp->iList; i++){
+      if(i == 1){temp[0] = 1;}
+      else{temp[0] = 0;}
       ret = block_write(i, (const void *)temp);
       if(ret < 0){
 	log_msg("\nInit: block_write at block %d failed. Return value: %d\n", i, ret);
@@ -271,6 +429,9 @@ void *sfs_init(struct fuse_conn_info *conn)
     rooti->st_atime = time(NULL);
     rooti->st_mtime = rooti->st_atime;
     rooti->st_ctime = rooti->st_atime;
+    rooti->st_nlink = 1;
+    rooti->st_size = 0; //size of dirs will just be 0?
+    rooti->st_blocks = 1;
     rooti->opened = 0;
     rooti->used = 0; //Just matches up with the imap
     int k;
@@ -282,7 +443,7 @@ void *sfs_init(struct fuse_conn_info *conn)
       log_msg("\nInit: reservefreeData returned -1.\n");
     }
 
-    initDir(1, rooti->directp[0], rooti->st_ino, rooti->st_ino);
+    initDir(rooti->directp[0], rooti->st_ino, rooti->st_ino);
     rooti->indirectp = 0;
     block_write(i, (const void *)ibuff);
   }
@@ -316,25 +477,36 @@ void sfs_destroy(void *userdata)
 int sfs_getattr(const char *path, struct stat *statbuf)
 {
   int retstat = 0;
-
+  log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n",
+          path, statbuf);
   inode par;
   inode targ;
   if(navPath(&par, &targ, path) == -1){
-    log_msg("\ngetattr: navPath returned -1.\n");
+    log_msg("\ngetattr: navPath returned -1. Returning that -ENOENT thing.\n");
+    return -ENOENT;
   }
 
-  statbuf->st_mode = targ.st_mode;
+  //statbuf->st_dev = 0;
   statbuf->st_ino = targ.st_ino;
-  statbuf->st_uid = targ.st_uid;
-  statbuf->st_gid = targ.st_gid;
-  statbuf->st_atime = targ.st_atime;
-  statbuf->st_mtime = targ.st_mtime;
-  statbuf->st_ctime = targ.st_ctime;
-  log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n",
-          path, statbuf);
+  statbuf->st_mode = targ.st_mode;
+  statbuf->st_nlink = 1;
+  //statbuf->st_uid = targ.st_uid;
+  //statbuf->st_gid = targ.st_gid;
+  //statbuf->st_rdev = 0;
+  statbuf->st_size = 512;
+  //statbuf->st_blksize = 512;
+  //statbuf->st_blocks = targ.st_blocks;
+  //statbuf->st_atime = targ.st_atime;
+  //statbuf->st_mtime = targ.st_mtime;
+  //statbuf->st_ctime = targ.st_ctime;
+  //log_msg("\ngetattr success. vals written to statbuf:\n dev %d, ino %d, mode %d, nlink %d, uid %d, gid %d, rdev %d, size %d, blksize %d, blocks %d, atime %d, mtime %d, ctime %d\n", statbuf->st_dev, statbuf->st_ino, statbuf->st_mode, statbuf->st_nlink, statbuf->st_uid, statbuf->st_gid, statbuf->st_rdev, statbuf->st_size,
+  //      statbuf->st_blksize, statbuf->st_blocks, statbuf->st_atime, statbuf->st_mtime, statbuf->st_ctime);
+
+
   log_msg("\ngetattr: inum of targ: %d. Uid of targ: %d. Mode of targ: %d.\n", targ.st_ino, targ.st_uid, targ.st_mode);
 
-    return retstat;
+  return retstat;
+
 }
 
 /**
@@ -351,22 +523,66 @@ int sfs_getattr(const char *path, struct stat *statbuf)
  */
 int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-    int retstat = 0;
-    log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
-            path, mode, fi);
+  int retstat = 0;
+  log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
+	  path, mode, fi);
 
+  inode targ;
+  inode par;
+  char currdir[256]; //
+  if(strlen(path) >= 255){
+    log_msg("\ncreate: pathlength too long.\n");
+    return -1;
+  }
+  strcpy(currdir, path);
+  int i = strlen(path);
+  while(currdir[i] != '/'){
+    i--;
+    if(i < 0){
+      log_msg("\ncreate: couldn't find char '/'\n");
+      return -1;
+    }
+  }
+  currdir[i] = '\0';
+  if(-1 == navPath(&par, &targ, currdir)){
+    log_msg("\ncreate: navpath returned -1\n");
+    return -1;
+  }
 
-    return retstat;
+  ino_t inum = reserveFreeInode(FILE);
+  if(inum == 0){
+    log_msg("\ncreate: reserveFreeInode failed.\n");
+    return -1;
+  }
+  inode newn;
+  if(-1 == getInode(inum, &newn)){
+    log_msg("\ncreate: getInode failed.\n");
+  }
+
+  //By default, the file will have no data blocks allocated to it.
+
+  //Make sure the parent has enough space for the new file's listing, and fill in the name.
+  char fn[MAX_FNAME];
+  int b = strlen(currdir)+1; //b should be at the first character of the new filename at path[b].
+  strcpy(fn, &path[b]);
+  if(-1 == updateDir(fn, &par, &targ, inum)){
+    log_msg("\ncreate: updatedir failed.\n");
+    return -1;
+  }
+
+  //If the dir update fails, we should also probably free up the stuff we allocated.
+
+  return retstat;
 }
 
 /** Remove a file */
 int sfs_unlink(const char *path)
 {
-    int retstat = 0;
-    log_msg("sfs_unlink(path=\"%s\")\n", path);
+  int retstat = 0;
+  log_msg("sfs_unlink(path=\"%s\")\n", path);
 
 
-    return retstat;
+  return retstat;
 }
 
 /** File open operation
@@ -381,12 +597,12 @@ int sfs_unlink(const char *path)
  */
 int sfs_open(const char *path, struct fuse_file_info *fi)
 {
-    int retstat = 0;
-    log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n",
-            path, fi);
+  int retstat = 0;
+  log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n",
+	  path, fi);
 
 
-    return retstat;
+  return retstat;
 }
 
 /** Release an open file
@@ -405,12 +621,12 @@ int sfs_open(const char *path, struct fuse_file_info *fi)
  */
 int sfs_release(const char *path, struct fuse_file_info *fi)
 {
-    int retstat = 0;
-    log_msg("\nsfs_release(path=\"%s\", fi=0x%08x)\n",
+  int retstat = 0;
+  log_msg("\nsfs_release(path=\"%s\", fi=0x%08x)\n",
           path, fi);
 
 
-    return retstat;
+  return retstat;
 }
 
 /** Read data from an open file
@@ -426,12 +642,12 @@ int sfs_release(const char *path, struct fuse_file_info *fi)
  */
 int sfs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
-    int retstat = 0;
-    log_msg("\nsfs_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
-            path, buf, size, offset, fi);
+  int retstat = 0;
+  log_msg("\nsfs_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n",
+	  path, buf, size, offset, fi);
 
 
-    return retstat;
+  return retstat;
 }
 
 /** Write data to an open file
@@ -461,6 +677,49 @@ int sfs_mkdir(const char *path, mode_t mode)
   log_msg("\nsfs_mkdir(path=\"%s\", mode=0%3o)\n",
 	  path, mode);
 
+  inode targ;
+  inode par;
+  char currdir[256]; //
+  if(strlen(path) >= 255){
+    log_msg("\nmkdir: pathlength too long.\n");
+    return -1;
+  }
+  strcpy(currdir, path);
+  int i = strlen(path);
+  while(currdir[i] != '/'){
+    i--;
+    if(i < 0){
+      log_msg("\ncreate: couldn't find char '/'\n");
+      return -1;
+    }
+  }
+  currdir[i] = '\0';
+  log_msg("\nmkdir: parent directory will be \"%s\"\n",currdir);
+  if(-1 == navPath(&par, &targ, currdir)){
+    log_msg("\nmkdir: navpath returned -1\n");
+    return -1;
+  }
+  log_msg("\nmkdir: targ ino_t is %d, par ino_t is %d.\n", targ.st_ino, par.st_ino);
+  ino_t inum = reserveFreeInode(DIRECTORY);
+  if(inum == 0){
+    log_msg("\nmkdir: reserveFreeInode failed.\n");
+    return -1;
+  }
+  inode newn;
+  if(-1 == getInode(inum, &newn)){
+    log_msg("\nmkdir: getInode failed.\n");
+  }
+
+  //By default, the file will have no data blocks allocated to it.
+
+  //Make sure the parent has enough space for the new file's listing, and fill in the name.
+  char fn[MAX_FNAME];
+  int b = strlen(currdir)+1; //b should be at the first character of the new filename at path[b].
+  strcpy(fn, &path[b]);
+  if(-1 == updateDir(fn, &par, &targ, inum)){
+    log_msg("\nmkdir: updatedir failed.\n");
+    return -1;
+  }
 
   return retstat;
 }
@@ -491,6 +750,12 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
   log_msg("\nsfs_opendir(path=\"%s\", fi=0x%08x)\n",
           path, fi);
 
+  inode targ;
+  inode par;
+  if(navPath(&par, &targ, path) == -1){
+    log_msg("\nmkdir: navpath returned -1.\n");
+    return -1;
+  }
 
   return retstat;
 }
@@ -521,13 +786,15 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 {
   int retstat = 0;
 
+  log_msg("\nreaddir starting.\n");
+
   //const char direntbuff[1000];
   struct stat currstat;
   //struct dirent *dirp = (dirent *)dbuff;
   inode targ;
   inode par;
   if(navPath(&par, &targ, path) == -1){
-    log_msg("\ngetattr: navPath returned -1.\n");
+    log_msg("\nreaddir: navPath returned -1.\n");
   }
   if(S_ISDIR(targ.st_mode) == 0){
     log_msg("\nreaddir: Given input is not a directory.\n");
@@ -544,10 +811,13 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
     block_read(targ.directp[i], mydirbuff);
     int j;
     for(j = 0; j < 16; j++){
-      if(m->inums[j] != -1){
+      if(m->inums[j] != INUM_FREE){
 	//dirp->d_ino = m->inums[j];
 	//strcpy(dirp->d_name, m->fname);
-	if(0 != filler(buf, m->fnames[j], &currstat, 0)){
+	log_msg("readdir about to call filler.  ");
+	int dfg = filler(buf, m->fnames[j], &currstat, 0);
+	log_msg("Var dfg was %d.\n", dfg);
+	if(0 != dfg){
 	  return 0;
 	}
       }
@@ -564,7 +834,7 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
 int sfs_releasedir(const char *path, struct fuse_file_info *fi)
 {
   int retstat = 0;
-
+  log_msg("\nreleasedir running.\n");
 
   return retstat;
 }
