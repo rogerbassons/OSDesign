@@ -22,7 +22,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <math.h>
 
 #ifdef HAVE_SYS_XATTR_H
 #include <sys/xattr.h>
@@ -53,16 +52,15 @@ The same can be said for dataList.
 
 The number of space/blocks used to store actual inodes is calculated on init and
 to make it simple we choose the maximum number of blocks that the disk can hold 
-minus 3 blocks (the first three blocks used to do the bookkeeping).
+minus 3 blocks (the first three blocks used to do the bookeeping).
 
 */
 
-void log_fuse_context(struct fuse_context *);
 
 #define DIRECTORY 0
 #define FILE      1
 
-#define FS_SIZE    100000000
+#define FS_SIZE    100  * 1000000
 
 typedef struct {
 	void *inodeList;
@@ -79,16 +77,9 @@ typedef struct fsNode {
 
 typedef struct inode {
 	unsigned type;
-	char name[PATH_MAX];
+	char *name;
 	void *data;
-	struct inode *nextInode; // To use for directories. Each element inside a dir is linked
-	mode_t    st_mode;        /* File type and mode */
-	nlink_t   st_nlink;       /* Number of hard links */
-	uid_t     st_uid;         /* User ID of owner */
-	gid_t     st_gid;         /* Group ID of owner */
-	off_t     st_size;        /* Total size, in bytes */
-	struct timespec st_atim;  /* Time of last access */
-	struct timespec st_mtim;  /* Time of last modification */
+	struct inode *nextInode;
 } inode;
 
 superblock *getSuperblock()
@@ -121,67 +112,20 @@ void initializeFreeList(void *list, unsigned size, int maxNumber)
 
 }
 
-int markNotFree(void *start, unsigned i, unsigned nElem)
+int getFree(void *start)
 {
-	fsNode *n = start;
-
-	// find the first
-	int j = 0;
-	while (n != NULL && j < i)
-		n = n->next;
-
-	if (n == NULL)
-		return 1;
-
-	// mark as not free nElem times starting from n
-	j = 0;
-	while (n != NULL && j < nElem) {
-		j++;
-		n->free = 0;
-		n = n->next;
-	}
-	if (j < nElem)
-		return 1;
-
-	return 0;
-}
-
-// returns the "index" number of the first free element in the list that starts
-// at start. (index starts counting from 0)
-// if size is bigger than BLOCK_SIZE it will search for the first series of
-// contiguous elements that can allocate size (considering that each element can
-// allocate BLOCK_SIZE).
-int getFree(void *start, size_t size)
-{
-	unsigned nElements = 1;
-	if (size > BLOCK_SIZE)
-		nElements = ceil(size / BLOCK_SIZE);
-
 	fsNode *n = start;
 
 	int i = 0;
-	int j = 0;
-	int found = 0;
-	int free = 0; //consecutive free elements
-	while (n != NULL && !found) {
-		if (n->free) {
-			if (free == 0)
-				j = i;
-			free++;
-		} else	if (free > 0) {
-			free = 0; // restart counter
-		}
-		found = nElements == free;
-
+	while (!n->free && n->next != NULL) {
 		i++;
 		n = n->next;
 	}
-	if (!found)
-		return -1;
-	else 
-		markNotFree(start, j, nElements);
 
-	return j;
+	if (!n->free)
+		return -1;
+
+	return i;
 }
 
 inode *getFreeInode()
@@ -190,101 +134,34 @@ inode *getFreeInode()
 
 	void *start = s->inodeList;
 
-	unsigned i = getFree(start, 0);
+	unsigned i = getFree(start);
 
 	return s->inodeStart + sizeof(inode) * i;
 }
 
-
-// returns a pointer to the first block of a series of contiguous blocks
-// that are able to allocate size.
-void *getFreeBlocks(size_t size)
+void *getFreeBlock()
 {
 	superblock *s = getSuperblock();
 
-	unsigned i = getFree(s->dataList, size);
+	void *start = s->dataList;
+
+	unsigned i = getFree(start);
 
 	return s->dataStart + BLOCK_SIZE * i;
 }
 
-int newInode(unsigned type, char *name, size_t size, inode *directory, mode_t *mode)
+int newInode(unsigned type, char *name)
 {
 	inode *i = getFreeInode();
 
 	i->type = type;
-	strcpy(i->name, name);
+	i->name = name;
 	i->nextInode = NULL;
+	i->data = getFreeBlock();
 
-	if (directory != NULL) {
-		i->nextInode = directory->nextInode;
-		directory->nextInode = i;
-	}
-
-	if (type == DIRECTORY) {
-
-		i->st_mode = S_IFDIR;
-		i->st_nlink = 2;
-		i->data = NULL;
-
-	} else {
-
-		i->data = getFreeBlocks(size);
-		i->st_mode = S_IFREG;
-		i->st_nlink = 1;
-		i->st_size = size;
-
-	}
-	if (mode == NULL)
-		i->st_mode = i->st_mode | S_IRWXU | S_IRWXG | S_IRWXO;
-	else
-		i->st_mode = i->st_mode | *mode;
-
-	i->st_uid = getuid(); 
-	i->st_gid = getgid();        
-
-	struct timespec t;
-	clock_gettime(CLOCK_MONOTONIC, &t);
-
-	i->st_atim = t;
-	i->st_mtim = t;
-
-	return 0;
+	return 1;
 }
 
-
-inode *getRootInode()
-{
-	// root "/" inode is always the first one
-	return (inode *) getSuperblock()->inodeStart;
-}
-
-inode *findNextInode(inode *i, char *s)
-{
-	if (i->type != DIRECTORY)
-		return NULL;
-
-	inode *res = i->nextInode;
-	while (res != NULL && strcmp(res->name, s) != 0) 
-		res = res->nextInode;
-
-	return res;
-}
-
-inode *findPath(char *path)
-{
-	char *s = strtok(path, "/");
-	inode *i = getRootInode();
-	
-	while (s != NULL) {
-		i = findNextInode(i, s);
-		if (i == NULL) 
-			return NULL; // not found
-
-		s = strtok(NULL, "/");
-	}
-
-	return i;
-}
 
 ///////////////////////////////////////////////////////////
 //
@@ -317,11 +194,11 @@ void *sfs_init(struct fuse_conn_info *conn)
 		log_msg("\n Error: can't malloc file system\n");
 		return NULL;
 	}
-	
-	unsigned nInodes = (FS_SIZE - BLOCK_SIZE * 3) / BLOCK_SIZE;
-	unsigned nBlocks = (FS_SIZE - BLOCK_SIZE * (3 + nInodes)) / BLOCK_SIZE;
+
+	unsigned nInodes = FS_SIZE/BLOCK_SIZE - BLOCK_SIZE * 3;
 
 	superblock s;
+
 	s.inodeList = *disk + BLOCK_SIZE;
 	s.dataList = s.inodeList + BLOCK_SIZE;
 	s.inodeStart = s.dataList + BLOCK_SIZE;
@@ -329,10 +206,9 @@ void *sfs_init(struct fuse_conn_info *conn)
 	memcpy(*disk, &s, sizeof(superblock));
 
 	initializeFreeList(s.inodeList, BLOCK_SIZE, nInodes);
-	initializeFreeList(s.dataList, BLOCK_SIZE, nBlocks);
+	initializeFreeList(s.dataList, BLOCK_SIZE, -1);
 
-	if (newInode(DIRECTORY, "/", 0, NULL, NULL))
-		log_msg("Error: Can't create root inode\n");
+	newInode(DIRECTORY, "/");
 
 	return SFS_DATA;
 }
@@ -357,42 +233,14 @@ void sfs_destroy(void *userdata)
  */
 int sfs_getattr(const char *path, struct stat *statbuf)
 {
-	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
+	int retstat = 0;
+
 	char fpath[PATH_MAX];
-	strcpy(fpath, path);
 
-	inode *i = findPath(fpath);
-	if (i == NULL) {
-		log_msg("Can't find inode from path\n");
-		return -ENOENT;	
-	}
-	
-	statbuf->st_mode = i->st_mode;
-	statbuf->st_nlink = i->st_nlink;
-	statbuf->st_uid = i->st_uid;
-	statbuf->st_gid = i->st_gid;
-	if (i->type != DIRECTORY)
-		statbuf->st_size = i->st_size;
-	statbuf->st_atime = i->st_atim.tv_sec;
-	struct timespec t;
-	clock_gettime(CLOCK_MONOTONIC, &t);
-	i->st_atim = t;
-	statbuf->st_mtime = i->st_mtim.tv_sec;
+	log_msg("\nsfs_getattr(path=\"%s\", statbuf=0x%08x)\n",
+			path, statbuf);
 
-	return 0;
-}
-
-char *extractFilename(const char *path)
-{
-	char fpath[PATH_MAX];
-	char *s = strtok(fpath, "/");
-	char *old = s;
-	while (s != NULL) {
-		s = strtok(NULL, "/");
-		old = s;
-	}
-
-	return old;
+	return retstat;
 }
 
 /**
@@ -409,27 +257,12 @@ char *extractFilename(const char *path)
  */
 int sfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
+	int retstat = 0;
 	log_msg("\nsfs_create(path=\"%s\", mode=0%03o, fi=0x%08x)\n",
 			path, mode, fi);
 
-	char *filename = extractFilename(path);
 
-	char fpath[PATH_MAX];
-	strcpy(fpath, path);
-
-	// remove filename from path
-	fpath[strlen(fpath) - strlen(filename) + 1] = '\0'; 
-
-
-	inode *dir = findPath(fpath);
-	if (dir == NULL) {
-		log_msg("Can't create file: directory/path not found");
-		return 1;
-	}
-
-	return newInode(FILE, filename, 0, dir, &mode);
-
-
+	return retstat;
 }
 
 /** Remove a file */
@@ -454,14 +287,12 @@ int sfs_unlink(const char *path)
  */
 int sfs_open(const char *path, struct fuse_file_info *fi)
 {
+	int retstat = 0;
 	log_msg("\nsfs_open(path\"%s\", fi=0x%08x)\n",
 			path, fi);
-	if ((fi->flags & O_CREAT) == O_CREAT) {
-		return sfs_create(path, S_IRWXU | S_IRWXG | S_IRWXO, fi);
-	}
 
-	return 0;
 
+	return retstat;
 }
 
 /** Release an open file
@@ -593,27 +424,7 @@ int sfs_opendir(const char *path, struct fuse_file_info *fi)
 int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
 		struct fuse_file_info *fi)
 {
-	log_msg("\nsfs_readdir(path=\"%s\", fi=0x%08x)\n", path, fi);
-	char fpath[PATH_MAX];
-	strcpy(fpath, path);
-
-	inode *i = findPath(fpath);
-	if (i->type != DIRECTORY)
-		return 1;
-
-
-	if(filler(buf, ".", NULL, 0))
-		log_msg("Filler buffer is full\n"); 
-	if (filler(buf, "..", NULL, 0))
-		log_msg("Filler buffer is full\n");
-
-
-	i = i->nextInode;
-	while (i != NULL) {
-		if (filler(buf, i->name, NULL, 0))
-			log_msg("Filler buffer is full\n");
-		i = i->nextInode;
-	}
+	int retstat = 0;
 
 	return 0;
 }
@@ -624,8 +435,6 @@ int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offse
  */
 int sfs_releasedir(const char *path, struct fuse_file_info *fi)
 {
-	log_msg("\nsfs_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
-
 	int retstat = 0;
 
 
